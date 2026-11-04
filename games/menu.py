@@ -3,7 +3,7 @@
 Любую игру можно запустить кнопкой. Для игр со ставкой (игры на двоих, рулетка и покер) после нажатия бот
 предлагает выбрать ставку: готовой кнопкой или своей суммой (кнопка «Своя сумма», число пишется в чат).
 В покере вместо суммы два режима: «Без ставки» или «Со ставкой» на весь баланс игрока.
-Затем открывается набор. Команды (/ttt 20, /roulette 50, /poker 100, /seabattle bot...) работают как раньше.
+Затем открывается набор. Команды (/ttt 20, /roulette 50, /poker 100, /blackjack 50, /seabattle bot...) работают как раньше.
 """
 import asyncio
 import re
@@ -24,6 +24,7 @@ from games.duel.challenge import DUELS, MAX_STAKE, NEED_DM, STAKE_STEPS, create_
 from games.casual import coinflip, mines, slot, tower
 from games.party import roulette
 from games.party.poker import handlers as poker
+from games.party.blackjack import handlers as blackjack
 from games.party.mafia.handlers import open_mafia_lobby
 from services import economy as ec
 from services import features
@@ -42,27 +43,28 @@ ICONS = {
     "bunker": "5197253849450042423",     # Бункер
     "seabattle": "5188322825735267247",  # Морской бой
     "poker": EMOJI["poker"][0],          # Покер
+    "blackjack": EMOJI["blackjack"][0],  # Блэкджек
     "coin": "5379600444098093058",       # Орёл и решка
     "mines": "5469913852462242978",      # Сапёр
 }
 RUBY_ID = EMOJI["ruby"][0]
 FALLBACK = {
     "mafia": "🎭", "code": "🔑", "wordseek": "🔤", "assoc": "💬", "roulette": "🔫", "bunker": "🛡",
-    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙", "slot": "🎰", "mines": "💣", "tower": "🗼",
+    "seabattle": "🚢", "poker": "🃏", "blackjack": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙", "slot": "🎰", "mines": "💣", "tower": "🗼",
 }
 # Короткие подписи для кнопок (полные названия остаются в тексте и в лобби)
-LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер"}
+LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер", "blackjack": "Блэкджек"}
 USAGE = {
     "ttt": "/ttt [ставка]", "rps": "/rps [ставка]", "duel": "/duel [ставка]",
     "seabattle": "/seabattle [ставка] или /seabattle bot", "hangman": "/hangman [ставка]",
 }
 # Порядок кнопок. Игры, которых тут нет, добавляются в конец.
-LOBBY_ORDER = ["bunker", "roulette", "poker", "assoc", "code", "wordseek", "memory", "whomost"]
+LOBBY_ORDER = ["bunker", "roulette", "poker", "blackjack", "assoc", "code", "wordseek", "memory", "whomost"]
 DUEL_ORDER = ["ttt", "duel", "seabattle", "hangman", "rps"]
 ONE_LINE = 15  # подпись длиннее этого числа знаков не влезает в половину строки: кнопка занимает всю строку
 
 PICKER_SEC = 60
-LOBBY_STAKE = ("roulette", "poker")  # групповые игры со ставкой (набор открывается как лобби)
+LOBBY_STAKE = ("roulette", "poker", "blackjack")  # групповые игры со ставкой (набор открывается как лобби)
 SOLO_STAKE = ("coin", "slot", "mines", "tower")  # игры в одиночку: ставка обязательна, лобби и соперника нет
 SOLO_TITLES = {"coin": coinflip.TITLE, "slot": slot.TITLE, "mines": mines.TITLE, "tower": tower.TITLE}
 pickers: Dict[int, Message] = {}  # меню выбора ставки: одно на игрока
@@ -216,6 +218,8 @@ async def launch(bot, chat_id: int, user, key: str, stake: int = 0, all_in: bool
         return await roulette.open_roulette(bot, chat_id, user, stake)
     if key == "poker":
         return await poker.open_poker(bot, chat_id, user, stake, all_in=all_in)
+    if key == "blackjack":
+        return await blackjack.open_blackjack(bot, chat_id, user, stake)
     if key == "coin":
         return await coinflip.open_coin(bot, chat_id, user, stake)
     if key == "slot":
@@ -294,6 +298,9 @@ def picker_text(key: str, name: str, balance: int) -> str:
                 "• <b>Без ставки</b> — игра на фишки.\n"
                 "• <b>Со ставкой</b> — каждый играет на весь свой баланс рубинов. "
                 "Проиграть можно всё, ограничений нет.")
+    elif key == "blackjack":
+        rule = (f"Выбери ставку. Каждый берёт карты в личке: «Ещё», «Хватит» или «Выйти». "
+                f"Кто ближе к 21, тот победил и забирает ставку у проигравших. Больше 21 — автоматический проигрыш.")
     elif key == "slot":
         rule = ("Выбери ставку, и автомат сразу закрутится. Три разных символа: ставка уходит боту. "
                 f"Два одинаковых: ставка возвращается. Три одинаковых: ставка умножается ({slot.table_text()}).")

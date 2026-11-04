@@ -33,6 +33,7 @@ COMMANDS = [
     ("bunker", "Бункер", "/bunker: «Бункер: 60 секунд», 4-12 игроков", "games", False, False),
     ("roulette", "Русская рулетка", "/roulette [ставка]: русская рулетка, 2-6 игроков", "games", False, False),
     ("poker", "Покер", "/poker [ставка]: техасский холдем, 2-8 игроков; без ставки или на весь баланс", "games", False, False),
+    ("blackjack", "Блэкджек", "/blackjack [ставка]: блэкджек, 2-8 игроков, кто ближе к 21, тот выиграл; карты в личке (ещё, хватит, выйти)", "games", False, False),
     ("wordseek", "WordSeek", "/wordseek: угадай слово из 5 букв", "games", False, False),
     ("seabattle", "Морской бой", "/seabattle [ставка]: морской бой, карта в личке (/seabattle bot: против бота)", "games", False, False),
     ("hangman", "Виселица", "/hangman [ставка]: виселица, слово загадываешь в личке с ботом", "games", False, False),
