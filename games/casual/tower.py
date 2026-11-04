@@ -45,6 +45,7 @@ from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.premium import raw
 
 router = Router()
 
@@ -57,6 +58,8 @@ MAX_MULT = 1000.0                          # потолок множителя (
 CHOICE_SEC = 60                            # сколько живёт меню выбора числа мин
 IDLE_SEC = 120                             # через сколько бездействия выигрыш забирается автоматически
 
+# Клетки башни выводим внутри raw(): бот заменяет обычные эмодзи на премиум-кастомные (они белые и сливаются),
+# а в башне нужны обычные ⬜️ ✅ 💣.
 TOWER, HIDDEN, SAFE, MINE, BOOM = "🗼", "\u2b1c\ufe0f", "\u2705", "💣", "💥"   # закрытая клетка, выбранная безопасная, мина, взрыв
 
 
@@ -169,7 +172,7 @@ def pick_markup(token: str) -> InlineKeyboardMarkup:
 def game_text(g: Game) -> str:
     k = len(g.picks)
     w, m = floor_cfg(g.max_mines, k)
-    lines = [f"Ставка: <b>{g.stake}</b> {RUBY} · Мин в ряду: <b>{m}</b> {MINE} из <b>{w}</b> клеток"]
+    lines = [f"Ставка: <b>{g.stake}</b> {RUBY} · Мин в ряду: <b>{m}</b> {raw(MINE)} из <b>{w}</b> клеток"]
     now = f"Этаж <b>{k + 1}</b>/{FLOORS} · множитель <b>{fm(multiplier(k, g.max_mines))}</b>"
     if k:
         now += f" · выигрыш <b>{payout_of(g.stake, k, g.max_mines)}</b> {RUBY}"
@@ -180,7 +183,7 @@ def game_text(g: Game) -> str:
     hist = _history(g)
     return (f"{TOWER} <b>{TITLE}</b> · <b>{esc(g.name)}</b>\n"
             f"<blockquote>{chr(10).join(lines)}</blockquote>\n"
-            + (f"\n{hist}\n\n" if hist else "") + f"<i>{hint}</i>")
+            + (f"\n{raw(hist)}\n\n" if hist else "") + f"<i>{hint}</i>")
 
 
 def game_markup(g: Game) -> InlineKeyboardMarkup:
@@ -296,7 +299,7 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
 
     hist = _history(g, boom=(kind == "boom"))
     if hist:
-        text += f"\n\n{hist}"
+        text += f"\n\n{raw(hist)}"
 
     markup = final_markup(g, balance)
     try:
@@ -391,7 +394,7 @@ async def cmd_tower(message: Message):
     usage = (f"{TOWER} <b>{TITLE}</b>\nСделай ставку командой: <code>/tower 50</code> (от 1 до {MAX_STAKE} {RUBY}).\n"
              "Или нажми «Башня» в /games, там ставка выбирается кнопками.\n\n"
              f"<i>Выбираешь число мин в ряду и поднимаешься на {FLOORS} этажей: безопасная клетка растит бонус, "
-             f"мина {MINE} сжигает ставку. Выигрыш можно забрать в любой момент.</i>")
+             f"мина {raw(MINE)} сжигает ставку. Выигрыш можно забрать в любой момент.</i>")
     if len(parts) < 2:
         await message.answer(usage)
         return
