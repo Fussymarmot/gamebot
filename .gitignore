@@ -1,4 +1,5 @@
-
+*.log
+*.db
 backups/*.gz
 backups/*.db
 
