@@ -149,6 +149,7 @@ class Table:
         self.deck: List[int] = []
         self.cur_bet = 0
         self.min_raise = bb
+        self.raises = 0       # сколько рейзов уже сделано на текущей улице (для подписи «Рейз»/«Ре-рейз»)
         self.acted = set()
         self.to_act: Optional[int] = None
         self.cursor = 0
@@ -262,6 +263,7 @@ class Table:
         self.seats[self.bb_idx].last = f"большой блайнд {self.seats[self.bb_idx].bet}"
         self.cur_bet = max(s.bet for s in self.seats)
         self.min_raise = self.bb
+        self.raises = 0
         for s in self.seats:
             if s.in_hand:
                 s.hole = [self.deck.pop(), self.deck.pop()]
@@ -298,7 +300,7 @@ class Table:
             seat = self.seats[idx]
             if seat.leaving:          # ушедший игрок автоматически сбрасывает карты
                 seat.folded = True
-                seat.last = "фолд"
+                seat.last = "пас"
                 self.cursor = (idx + 1) % len(self.seats)
                 continue
             self.to_act = idx
@@ -314,6 +316,7 @@ class Table:
             s.last = ""
         self.cur_bet = 0
         self.min_raise = self.bb
+        self.raises = 0
         self.acted = set()
         self.cursor = (self.button + 1) % len(self.seats)
 
@@ -349,7 +352,7 @@ class Table:
     def fold(self, uid: int):
         s = self._turn(uid)
         s.folded = True
-        s.last = "фолд"
+        s.last = "пас"
         self._after(s)
 
     def check_call(self, uid: int):
@@ -376,6 +379,8 @@ class Table:
         self._put(s, to - s.bet)
         inc = to - self.cur_bet
         verb = "ставка" if self.cur_bet == 0 else "рейз до"
+        if self.cur_bet > 0:
+            self.raises += 1
         if inc >= self.min_raise:
             self.min_raise = inc
         self.cur_bet = to

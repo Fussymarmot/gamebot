@@ -2,6 +2,7 @@
 
 Любую игру можно запустить кнопкой. Для игр со ставкой (игры на двоих, рулетка и покер) после нажатия бот
 предлагает выбрать ставку: готовой кнопкой или своей суммой (кнопка «Своя сумма», число пишется в чат).
+В покере вместо суммы два режима: «Без ставки» или «Со ставкой» на весь баланс игрока.
 Затем открывается набор. Команды (/ttt 20, /roulette 50, /poker 100, /seabattle bot...) работают как раньше.
 """
 import asyncio
@@ -130,7 +131,7 @@ def games_markup() -> InlineKeyboardMarkup:
 
 
 def games_text() -> str:
-    t = f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму (можно выбрать кнопкой или написать свою).\n\n"
+    t = f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму (можно выбрать кнопкой или написать свою). В покере можно сыграть без ставки или на весь баланс.\n\n"
     games = lobby_games()
     if games or features.is_on("mafia"):
         t += "<b>На несколько игроков</b> (лобби: «Войти» и «Старт»):\n"
@@ -172,14 +173,14 @@ def title_of(key: str) -> str:
     return DUELS[key].title if key in DUELS else key
 
 
-async def launch(bot, chat_id: int, user, key: str, stake: int = 0) -> Optional[str]:
+async def launch(bot, chat_id: int, user, key: str, stake: int = 0, all_in: bool = False) -> Optional[str]:
     """Запускает игру кнопкой. None, если всё хорошо; иначе текст ошибки (или NEED_DM)."""
     if key == "mafia":
         return await open_mafia_lobby(bot, chat_id, user)
     if key == "roulette":
         return await roulette.open_roulette(bot, chat_id, user, stake)
     if key == "poker":
-        return await poker.open_poker(bot, chat_id, user, stake)
+        return await poker.open_poker(bot, chat_id, user, stake, all_in=all_in)
     if key in DUELS:
         return await create_challenge(bot, chat_id, user, key, stake)
     if key in GAMES:
@@ -205,6 +206,14 @@ async def precheck(chat_id: int, user, key: str) -> Optional[str]:
 
 
 def picker_markup(uid: int, key: str, balance: int) -> InlineKeyboardMarkup:
+    if key == "poker":
+        # В покере ставка не выбирается суммой: либо без ставки, либо весь баланс рубинов.
+        label = f"Со ставкой: весь баланс ({balance})" if balance else "Со ставкой: весь баланс"
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Без ставки", callback_data=f"gm:st:{uid}:{key}:0")],
+            [ruby_button(label, f"gm:all:{uid}:{key}")],
+            [ui.btn("🚫 Отмена", f"gm:sx:{uid}")],
+        ])
     rows = [[InlineKeyboardButton(text="Без ставки", callback_data=f"gm:st:{uid}:{key}:0")]]
     steps = [s for s in STAKE_STEPS if s <= balance]
     row = []
@@ -228,7 +237,7 @@ def custom_markup(uid: int, key: str) -> InlineKeyboardMarkup:
 
 
 def custom_text(key: str, name: str, balance: int) -> str:
-    top = min(MAX_STAKE, balance)
+    top = balance if key == "poker" else min(MAX_STAKE, balance)
     what = "бай-ин" if key == "poker" else "ставку"
     return (f"{e('game')} <b>{esc(title_of(key))}</b>\n"
             f"Игрок: <b>{esc(name)}</b>\n\n"
@@ -237,14 +246,18 @@ def custom_text(key: str, name: str, balance: int) -> str:
 
 
 def picker_text(key: str, name: str, balance: int) -> str:
-    rule = ("Выбери бай-ин: столько фишек получит каждый игрок, а рубины перейдут от проигравших "
-            "к выигравшим по итогам игры." if key == "poker"
-            else "Выбери ставку. Победитель забирает её у проигравшего.")
+    if key == "poker":
+        rule = ("Выбери режим:\n"
+                "• <b>Без ставки</b> — игра на фишки.\n"
+                "• <b>Со ставкой</b> — каждый играет на весь свой баланс рубинов. "
+                "Проиграть можно всё, ограничений нет.")
+    else:
+        rule = "Выбери ставку. Победитель забирает её у проигравшего."
     t = (f"{e('game')} <b>{esc(title_of(key))}</b>\n"
          f"Игрок: <b>{esc(name)}</b>\n\n"
          f"{rule}\n"
          f"У тебя: <b>{balance}</b> {RUBY}")
-    if balance < STAKE_STEPS[0]:
+    if key != "poker" and balance < STAKE_STEPS[0]:
         t += f"\n<i>Ставки от {STAKE_STEPS[0]} {RUBY} станут доступны, когда накопишь рубины.</i>"
     return t
 
@@ -311,7 +324,7 @@ async def games_cb(cb: CallbackQuery):
         return
 
     # Меню выбора ставки принадлежит тому, кто его открыл
-    if act in ("st", "sx", "bot", "cu", "gb"):
+    if act in ("st", "sx", "bot", "cu", "gb", "all"):
         if user.id != int(parts[2]):
             await cb.answer("Это меню открыл другой игрок", show_alert=True)
             return
@@ -371,6 +384,24 @@ async def games_cb(cb: CallbackQuery):
         await cb.message.edit_text(picker_text(key, user.first_name or user.username or "Игрок", balance),
                                    reply_markup=picker_markup(user.id, key, balance))
         await cb.answer()
+        return
+
+    if act == "all":
+        key = parts[3]
+        if key != "poker" or not is_enabled(key):
+            await cb.answer("Эта игра отключена", show_alert=True)
+            return
+        if not allow_lobby(user.id):
+            await cb.answer("⏳ Слишком много действий. Попробуй немного позже.", show_alert=True)
+            return
+        err = await launch(cb.bot, cb.message.chat.id, user, key, all_in=True)
+        if err:
+            if err != NEED_DM:
+                await _close_picker(user.id, cb.message)
+            await _answer_error(cb, err)
+            return
+        await _close_picker(user.id, cb.message)
+        await cb.answer("Набор открыт!")
         return
 
     if act == "st":
@@ -436,8 +467,9 @@ async def custom_stake(message: Message):
     amount = int(message.text.replace(" ", ""))
     balance = (await ec.wallet(user.id))[0]
     await _drop(message)  # число из чата убираем, чтобы не засорять его
-    if not 1 <= amount <= MAX_STAKE:
-        asyncio.create_task(_temp(message, f"⚠️ Ставка от 1 до {MAX_STAKE} {RUBY}. Напиши другое число."))
+    limit = balance if key == "poker" else min(MAX_STAKE, balance)
+    if not 1 <= amount <= limit:
+        asyncio.create_task(_temp(message, f"⚠️ Ставка от 1 до {limit} {RUBY}. Напиши другое число."))
         return
     if amount > balance:
         asyncio.create_task(_temp(message, f"⚠️ У тебя только {balance} {RUBY}. Напиши сумму поменьше."))
