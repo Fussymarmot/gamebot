@@ -10,7 +10,6 @@
 запускать и команда, и кнопка меню.
 """
 import asyncio
-import logging
 import secrets
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Optional, Tuple
@@ -32,7 +31,6 @@ from utils.fmt import esc
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 MAX_STAKE = 1000  # потолок любой ставки: и быстрых кнопок, и своей суммы, и команд (/ttt 500)
 STAKE_STEPS = (10, 25, 50, 100, 200, 500)  # быстрые ставки в меню игр
@@ -194,7 +192,6 @@ async def _launch(msg: Message, c: dict):
     try:
         await c["start"](msg, a, c["cname"], b, c["jname"])
     except Exception:
-        log.exception("Ошибка запуска игры %s", c["key"])
         release(a, b)
         stakes.pop(a, None)
         stakes.pop(b, None)

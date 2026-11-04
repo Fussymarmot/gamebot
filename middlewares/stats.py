@@ -2,7 +2,6 @@
 
 Сами люди регистрируются в middlewares/register.py."""
 import asyncio
-import logging
 from typing import Any, Callable, Dict
 
 from aiogram import BaseMiddleware
@@ -13,7 +12,6 @@ from database.messages import save_message
 from database.users import save_user, set_member
 from services import members, tags
 
-log = logging.getLogger(__name__)
 
 
 class StatsMiddleware(BaseMiddleware):
@@ -33,5 +31,5 @@ class StatsMiddleware(BaseMiddleware):
                     asyncio.create_task(
                         tags.enforce(event.bot, user.id, getattr(event, "sender_tag", None)))
             except Exception:
-                log.exception("Ошибка записи статистики")
+                pass
         return await handler(event, data)

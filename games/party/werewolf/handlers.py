@@ -1,5 +1,4 @@
 import asyncio
-import logging
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -16,7 +15,6 @@ from utils.ui import btn, name_rows
 from aiogram.types import InlineKeyboardMarkup
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "werewolf"
 
 
@@ -70,7 +68,6 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в игре «Оборотни»")
         try:
             await lobby.bot.send_message(lobby.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
         except Exception:

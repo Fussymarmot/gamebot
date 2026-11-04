@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, timedelta
 
 import pytz
@@ -17,7 +16,6 @@ from services import backup, giveaways, maintenance, members, tags
 from services.quiet import silent_state
 from utils.timeutils import now, parse_ts, ts, TZ
 
-log = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone=pytz.timezone(TIMEZONE))
 _bot = None
 
@@ -81,8 +79,8 @@ async def check_perm_tags():
         try:
             m = await _bot.get_chat_member(GROUP_ID, uid)
             await tags.enforce(_bot, uid, getattr(m, "tag", None))
-        except Exception as ex:
-            log.debug("check tag %s: %s", uid, ex)
+        except Exception:
+            pass
 
 
 async def refresh_members_job():
@@ -99,8 +97,8 @@ async def expire_tags():
         if uid not in tags.perm_cache:
             try:
                 await tags.set_member_tag(_bot, uid, None)
-            except Exception as ex:
-                log.info("Не удалось снять тег %s: %s", uid, ex)
+            except Exception:
+                pass
         await x("UPDATE orders SET status='expired' WHERE id=?", (oid,))
 
 
@@ -123,7 +121,7 @@ async def weekly_report_job():
     try:
         await _bot.send_message(ADMIN_ID, await report_week.build())
     except Exception:
-        log.exception("Не удалось отправить недельный отчёт")
+        pass
 
 
 async def startup_jobs():

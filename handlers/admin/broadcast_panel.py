@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import re
 
 from aiogram import F
@@ -14,7 +13,6 @@ from utils.emoji import e, EMOJI
 from utils.fmt import esc
 from utils.ui import kb
 
-log = logging.getLogger(__name__)
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 

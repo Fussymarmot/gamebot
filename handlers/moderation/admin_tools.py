@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
@@ -20,7 +19,6 @@ from utils.timeutils import now, parse_ts, ts
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 
 def is_admin(m: Message) -> bool:
@@ -139,7 +137,7 @@ async def cmd_report(message: Message):
     try:
         await message.bot.send_message(ADMIN_ID, report_text(r), reply_markup=report_kb(rid))
     except TelegramAPIError:
-        log.exception("Не удалось отправить жалобу админу")
+        pass
     try:
         await message.delete()
     except TelegramAPIError:

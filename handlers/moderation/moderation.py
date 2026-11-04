@@ -1,4 +1,3 @@
-import logging
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -17,7 +16,6 @@ from utils.timeutils import parse_ts, ts
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 
 def is_admin(uid) -> bool:
@@ -102,7 +100,7 @@ async def mute_cb(cb: CallbackQuery):
         try:
             await cb.bot.send_message(GROUP_ID, text, reply_markup=appeal_kb(target))
         except TelegramAPIError:
-            log.warning("Не удалось сообщить о муте в группу")
+            pass
     await cb.answer()
 
 
@@ -170,8 +168,8 @@ async def cmd_untag(message: Message):
     tags.perm_cache.pop(t.id, None)
     try:
         await tags.set_member_tag(message.bot, t.id, None)
-    except Exception as ex:
-        log.warning("untag: %s", ex)
+    except Exception:
+        pass
     await log_mod(message.from_user.id, t.id, "untag")
     await message.answer(f"{e('check')} Тег снят с <b>{esc(t.name)}</b>")
 

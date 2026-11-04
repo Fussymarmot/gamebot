@@ -21,7 +21,7 @@ from games import invites, pause
 from games.core import GAMES, open_lobby
 from games.duel import duel, hangman, rps, seabattle, tictactoe  # noqa: F401: регистрируют игры в DUELS
 from games.duel.challenge import DUELS, MAX_STAKE, NEED_DM, STAKE_STEPS, create_challenge
-from games.casual import coinflip
+from games.casual import coinflip, slot
 from games.party import roulette
 from games.party.poker import handlers as poker
 from games.party.mafia.handlers import open_mafia_lobby
@@ -47,7 +47,7 @@ ICONS = {
 RUBY_ID = EMOJI["ruby"][0]
 FALLBACK = {
     "mafia": "🎭", "code": "🔑", "wordseek": "🔤", "assoc": "💬", "roulette": "🔫", "bunker": "🛡",
-    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙",
+    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙", "slot": "🎰",
 }
 # Короткие подписи для кнопок (полные названия остаются в тексте и в лобби)
 LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер"}
@@ -62,7 +62,8 @@ ONE_LINE = 15  # подпись длиннее этого числа знако�
 
 PICKER_SEC = 60
 LOBBY_STAKE = ("roulette", "poker")  # групповые игры со ставкой (набор открывается как лобби)
-SOLO_STAKE = ("coin",)  # игры в одиночку: ставка обязательна, лобби и соперника нет
+SOLO_STAKE = ("coin", "slot")  # игры в одиночку: ставка обязательна, лобби и соперника нет
+SOLO_TITLES = {"coin": coinflip.TITLE, "slot": slot.TITLE}
 pickers: Dict[int, Message] = {}  # меню выбора ставки: одно на игрока
 picker_tasks: Dict[int, asyncio.Task] = {}  # таймер автозакрытия меню
 awaiting: Dict[int, str] = {}  # игрок нажал «Своя сумма» и ждём от него число: {user_id: ключ игры}
@@ -79,7 +80,7 @@ def lobby_games():
 
 
 def solo_games():
-    return [(k, coinflip.TITLE) for k in SOLO_STAKE if features.is_on(k)]
+    return [(k, SOLO_TITLES[k]) for k in SOLO_STAKE if features.is_on(k)]
 
 
 def two_player():
@@ -139,28 +140,41 @@ def games_markup() -> InlineKeyboardMarkup:
 
 
 def games_text() -> str:
-    t = f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму (можно выбрать кнопкой или написать свою). В покере можно сыграть без ставки или на весь баланс.\n\n"
+    """Текст меню игр. Списки игр спрятаны в раскрываемые цитаты, как в /help."""
+    t = (f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму "
+         f"(можно выбрать кнопкой или написать свою). В покере можно сыграть без ставки или на весь баланс.\n")
+
+    def section(emoji: str, title: str, note: str, lines: List[str]) -> str:
+        return (f"\n{e(emoji)} <b>{title}</b>\n<i>{note}</i>\n"
+                f"<blockquote expandable>" + "\n".join(lines) + "</blockquote>")
+
     games = lobby_games()
     if games or features.is_on("mafia"):
-        t += "<b>На несколько игроков</b> (лобби: «Войти» и «Старт»):\n"
+        lines = []
         if features.is_on("mafia"):
-            t += "• Мафия: 5+ игроков, роли в личке\n"
+            lines.append("Мафия: 5+ игроков, роли в личке")
         for _, g in games:
             mx = f"–{g.max_players}" if g.max_players != g.min_players else ""
-            t += f"• {esc(g.title)} ({g.min_players}{mx} игр.)\n"
+            lines.append(f"{esc(g.title)} ({g.min_players}{mx} игр.)")
+        t += section("party", "На несколько игроков", "лобби: «Войти» и «Старт»", lines)
     solo = solo_games()
     if solo:
-        t += "\n<b>В одиночку</b> (ставка обязательна, играешь против бота):\n"
-        t += f"• {esc(coinflip.TITLE)}: {code('/coin [ставка]')}, угадаешь сторону монеты и ставка удвоится\n"
+        solo_lines = {
+            "coin": f"{esc(coinflip.TITLE)}: {code('/coin [ставка]')}, угадаешь сторону монеты и ставка удвоится",
+            "slot": f"{esc(slot.TITLE)}: {code('/slot [ставка]')}, три разных — проигрыш, два одинаковых — "
+                    f"ставка возвращается, три — удвоение",
+        }
+        t += section("dice", "В одиночку", "ставка обязательна, играешь против бота",
+                     [solo_lines[k] for k, _ in solo])
     duo = two_player()
     if duo:
-        t += "\n<b>На двоих</b> (игра начинается сразу, как только присоединится соперник):\n"
-        t += "\n".join(f"• {esc(d.title)}: {code(USAGE.get(k, '/' + k))}" for k, d in duo) + "\n"
+        t += section("swords", "На двоих", "игра начинается сразу, как только присоединится соперник",
+                     [f"{esc(d.title)}: {code(USAGE.get(k, '/' + k))}" for k, d in duo])
     if duo or features.is_on("roulette"):
-        t += (f"\n<i>Ставка в рубинах необязательна: победитель забирает её у проигравшего. "
+        t += (f"\n\n<i>Ставка в рубинах необязательна: победитель забирает её у проигравшего. "
               f"Можно и командой, например {code('/ttt 20')} (до {MAX_STAKE}).</i>")
     if not games and not duo and not features.is_on("mafia"):
-        t += "<i>Сейчас все игры отключены.</i>"
+        t += "\n<i>Сейчас все игры отключены.</i>"
     return t
 
 
@@ -185,7 +199,7 @@ def title_of(key: str) -> str:
     if key in GAMES:
         return GAMES[key].title
     if key in SOLO_STAKE:
-        return coinflip.TITLE
+        return SOLO_TITLES[key]
     return DUELS[key].title if key in DUELS else key
 
 
@@ -199,6 +213,8 @@ async def launch(bot, chat_id: int, user, key: str, stake: int = 0, all_in: bool
         return await poker.open_poker(bot, chat_id, user, stake, all_in=all_in)
     if key == "coin":
         return await coinflip.open_coin(bot, chat_id, user, stake)
+    if key == "slot":
+        return await slot.spin(bot, chat_id, user, stake)
     if key in DUELS:
         return await create_challenge(bot, chat_id, user, key, stake)
     if key in GAMES:
@@ -269,6 +285,9 @@ def picker_text(key: str, name: str, balance: int) -> str:
                 "• <b>Без ставки</b> — игра на фишки.\n"
                 "• <b>Со ставкой</b> — каждый играет на весь свой баланс рубинов. "
                 "Проиграть можно всё, ограничений нет.")
+    elif key == "slot":
+        rule = ("Выбери ставку, и автомат сразу закрутится. Три разных символа: ставка уходит боту. "
+                f"Два одинаковых: ставка возвращается. Три одинаковых: ставка умножается на {slot.COEF}.")
     elif key in SOLO_STAKE:
         rule = (f"Выбери ставку, потом сторону монеты. Угадаешь, и ставка умножится на {coinflip.COEF}, "
                 "не угадаешь, и она уйдёт боту.")
@@ -452,7 +471,7 @@ async def games_cb(cb: CallbackQuery):
                 await _close_picker(user.id, cb.message)
             return
         await _close_picker(user.id, cb.message)
-        await cb.answer("Выбери сторону монеты" if key in SOLO_STAKE else "Набор открыт!")
+        await cb.answer({"coin": "Выбери сторону монеты", "slot": "Крутим!"}.get(key, "Набор открыт!"))
         return
 
     if act == "bot":

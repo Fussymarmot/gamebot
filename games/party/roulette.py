@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 from typing import Optional
 
@@ -16,7 +15,6 @@ from utils.fmt import esc
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "roulette"
 CHAMBERS = 6
 TURN_SEC = 60
@@ -105,7 +103,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в рулетке")
+        pass
     finally:
         finish(lobby)
 

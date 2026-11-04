@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import Dict, Iterable, List, Set, Tuple
 
 from aiogram.exceptions import TelegramAPIError
@@ -9,7 +8,6 @@ from database.core import q, x
 from utils.fmt import esc
 from utils.timeutils import now, parse_ts
 
-log = logging.getLogger(__name__)
 _bot = None
 _muted: Dict[int, Set[int]] = {}
 
@@ -51,9 +49,8 @@ async def mute_dead(bot, chat_id: int, players: Iterable[Tuple[int, str, str]], 
             continue
         try:
             await bot.restrict_chat_member(chat_id, uid, permissions=ChatPermissions(can_send_messages=False))
-        except TelegramAPIError as ex:
+        except TelegramAPIError:
             ok = False
-            log.info("Не удалось замутить %s: %s", uid, ex)
         if ok:
             _muted.setdefault(chat_id, set()).add(uid)
             await x("INSERT OR REPLACE INTO game_mutes (user_id, chat_id) VALUES (?,?)", (uid, chat_id))
@@ -82,8 +79,8 @@ async def unmute_game(chat_id: int):
         if not manual:
             try:
                 await bot.restrict_chat_member(chat_id, uid, permissions=perms)
-            except TelegramAPIError as ex:
-                log.info("Не удалось размутить %s: %s", uid, ex)
+            except TelegramAPIError:
+                pass
         await x("DELETE FROM game_mutes WHERE user_id=? AND chat_id=?", (uid, chat_id))
         await asyncio.sleep(0.05)
 

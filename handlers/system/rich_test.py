@@ -19,7 +19,7 @@ async def cmd_richtest(message: Message):
             + richui.row([richui.btn("Всё отлично", "rt:ok", "success")]))
     data = await richui.call("sendRichMessage", {"chat_id": message.chat.id, "rich_message": {"html": body}})
     if not data:
-        await message.answer("❌ Telegram отклонил Rich-сообщение. Подробности в bot.log. "
+        await message.answer("❌ Telegram отклонил Rich-сообщение. "
                              "Игры останутся на обычных кнопках.")
 
 

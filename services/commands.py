@@ -3,7 +3,6 @@
 COMMANDS: (команда, название, строка справки, раздел, только_админ, в_меню).
 Разделы (SECTIONS) используются в /help и в админ-панели «Функции».
 """
-import logging
 
 from aiogram import Bot
 from aiogram.types import (BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
@@ -12,7 +11,6 @@ from aiogram.types import (BotCommand, BotCommandScopeAllGroupChats, BotCommandS
 from config import ADMIN_ID, GROUP_ID
 from services import features
 
-log = logging.getLogger(__name__)
 
 SECTIONS = [
     ("general", "info", "Общее"),
@@ -39,6 +37,7 @@ COMMANDS = [
     ("seabattle", "Морской бой", "/seabattle [ставка]: морской бой, карта в личке (/seabattle bot: против бота)", "games", False, False),
     ("hangman", "Виселица", "/hangman [ставка]: виселица, слово загадываешь в личке с ботом", "games", False, False),
     ("coin", "Орёл и решка", "/coin [ставка]: орёл или решка, угадай сторону монеты — ставка удвоится", "games", False, False),
+    ("slot", "Слот-машина", "/slot [ставка]: слот-машина 🎰, три разных — проигрыш, два одинаковых — ставка возвращается, три — удвоение", "games", False, False),
     ("memory", "Мемори", "/memory: запомни эмодзи", "games", False, False),
     ("code", "Взломай код", "/code: угадай код из 4 цифр", "games", False, False),
     ("assoc", "Ассоциации", "/assoc: цепочка слов", "games", False, False),
@@ -121,8 +120,6 @@ async def set_commands(bot: Bot):
                                   scope=BotCommandScopeAllPrivateChats())
         await bot.set_my_commands(admin, scope=BotCommandScopeChatMember(chat_id=GROUP_ID, user_id=ADMIN_ID))
         await bot.set_my_commands(admin, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
-        log.info("Команды бота установлены")
         return True
-    except Exception as ex:
-        log.error("Ошибка при установке команд: %s", ex)
+    except Exception:
         return False

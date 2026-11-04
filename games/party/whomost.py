@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from collections import Counter
 
 from aiogram import F, Router
@@ -16,7 +15,6 @@ from utils.fmt import esc
 from utils.ui import btn, name_rows
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "whomost"
 ROUNDS = 5
 VOTE_SEC = 40
@@ -78,7 +76,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в «Кто скорее всего»")
+        pass
     finally:
         finish(lobby)
 

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -25,7 +24,6 @@ from utils.timeutils import ts
 from utils.ui import kb, name_rows
 
 router = Router()
-log = logging.getLogger(__name__)
 
 sessions: Dict[int, "Session"] = {}
 _gid = 0
@@ -68,8 +66,7 @@ def uid_name(g: MafiaGame, uid: int) -> str:
 async def dm(bot, uid: int, text: str, kb=None) -> Optional[Message]:
     try:
         return await bot.send_message(uid, text, reply_markup=kb)
-    except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError) as ex:
-        log.warning("Не удалось написать игроку %s: %s", uid, ex)
+    except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError):
         return None
 
 
@@ -516,7 +513,6 @@ async def run_game(s: Session):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в игре мафии")
         _drop(g.chat_id)
         try:
             await bot.send_message(g.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
@@ -552,4 +548,4 @@ async def end_game(s: Session, key: str):
         for p in g.players.values():
             await add_game_result(p.uid, "mafia", "win" if p.uid in win_ids else "loss")
     except Exception:
-        log.exception("Не удалось сохранить итоги мафии")
+        pass

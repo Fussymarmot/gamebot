@@ -1,4 +1,3 @@
-import logging
 import random
 import re
 from typing import List, Optional
@@ -6,7 +5,6 @@ from typing import List, Optional
 from database.core import q, x
 from services import ai
 
-log = logging.getLogger(__name__)
 SYSTEM = ("Ты помощник в игре для группы друзей. Пиши по-русски, весело и по-доброму, "
           "без имён людей, грубостей, мата, политики, внешности, болезней и личных тем. "
           "Следуй формату ответа из запроса и ничего не добавляй сверх него.")

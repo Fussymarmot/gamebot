@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import time
 
@@ -14,7 +13,6 @@ from utils.fmt import esc
 from utils.premium import raw
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "memory"
 POOL = list("🍎🚀🐱⭐🎲🍕🎈🔥🌙🍀🎵🐶🍩⚽🎁🦋🍉🚗🎸🍓")
 ROUNDS = 5
@@ -81,7 +79,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в Мемори")
+        pass
     finally:
         finish(lobby)
 

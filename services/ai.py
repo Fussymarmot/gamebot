@@ -1,4 +1,3 @@
-import logging
 from typing import Optional
 
 import aiohttp
@@ -7,7 +6,6 @@ from config import AI_BASE_URL, AI_KEY, AI_MODEL
 from database.settings import get_setting, set_setting
 from utils.timeutils import now
 
-log = logging.getLogger(__name__)
 URL = f"{AI_BASE_URL}/v1/messages"
 SYSTEM = ("Ты рассказчик в игре «Бункер». Игроки выживают в бункере после катастрофы, голосуют за "
           "решения на событиях, запасы еды и воды ограничены. Пиши только о том, что указано в запросе, ничего не "
@@ -42,7 +40,6 @@ async def ask(prompt: str, max_tokens: int = 600, timeout: float = 8.0, system: 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.post(URL, json=body, headers=headers) as resp:
                 if resp.status != 200:
-                    log.warning("ИИ ответил кодом %s", resp.status)
                     return None
                 data = await resp.json()
         text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
@@ -51,6 +48,5 @@ async def ask(prompt: str, max_tokens: int = 600, timeout: float = 8.0, system: 
             if cut > 20:
                 text = text[:cut + 1]
         return text[:900] or None
-    except Exception as ex:
-        log.warning("ИИ недоступен: %s", ex)
+    except Exception:
         return None

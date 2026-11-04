@@ -1,11 +1,9 @@
-import logging
 from typing import Optional
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from utils.emoji import CHAR_IDS, EMOJI
 
-log = logging.getLogger(__name__)
 ICONS_ENABLED = False
 
 
@@ -77,9 +75,9 @@ async def probe_icons(bot) -> bool:
             pass
         set_icons(True)
         return True
-    except TelegramBadRequest as ex:
-        log.warning("Иконки на кнопках не приняты Telegram: %s", ex)
-    except Exception as ex:
-        log.warning("Проверка иконок не удалась: %s", ex)
+    except TelegramBadRequest:
+        pass
+    except Exception:
+        pass
     set_icons(False)
     return False

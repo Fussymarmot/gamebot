@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import re
 from collections import Counter
@@ -17,7 +16,6 @@ from utils.emoji import e
 from utils.fmt import esc
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "assoc"
 MAX_WORDS = 60
 WORD_RE = re.compile(r"[а-яёa-z][а-яёa-z\-]{1,24}")
@@ -94,7 +92,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в «Ассоциации»")
+        pass
     finally:
         finish(lobby)
 

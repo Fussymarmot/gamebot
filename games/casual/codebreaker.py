@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 
 from aiogram import F, Router
@@ -12,7 +11,6 @@ from utils.emoji import e
 from utils.fmt import code, esc
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "code"
 ATTEMPTS = 8
 TIME_LIMIT = 300
@@ -54,7 +52,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в «Взломай код»")
+        pass
     finally:
         finish(lobby)
 

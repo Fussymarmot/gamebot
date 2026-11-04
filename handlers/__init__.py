@@ -15,7 +15,7 @@ def get_routers():
     from games import core as games_core
     from games import ratings
     from games import menu as games_menu
-    from games.casual import codebreaker, coinflip, memory, wordseek
+    from games.casual import codebreaker, coinflip, memory, slot, wordseek
     from games.duel import challenge, duel, hangman, rps, seabattle, tictactoe
     from games.party import associations, roulette
     from games.party.poker import handlers as poker
@@ -34,7 +34,7 @@ def get_routers():
         challenge.router, games_core.router,
         tictactoe.router, rps.router, duel.router, mafia.router, memory.router,
         codebreaker.router, associations.router, bunker.router, roulette.router, poker.router,
-        seabattle.router, hangman.router, wordseek.router, coinflip.router,
+        seabattle.router, hangman.router, wordseek.router, coinflip.router, slot.router,
         appeals.router, mod_roles.router, rich_test.router, games_menu.router, pause_cmds.router,
         emoji_helper.router, tag_enforcer.router,
     ]

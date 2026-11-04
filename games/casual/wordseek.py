@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import re
 from collections import Counter
@@ -19,7 +18,6 @@ from utils.fmt import esc
 from utils.timeutils import now
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "wordseek"
 ATTEMPTS = 6
 TIME_LIMIT = 300
@@ -93,7 +91,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в WordSeek")
+        pass
     finally:
         finish(lobby)
 

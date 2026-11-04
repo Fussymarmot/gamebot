@@ -1,5 +1,4 @@
 import html as _html
-import logging
 from typing import Optional, Tuple
 
 import aiohttp
@@ -8,7 +7,6 @@ from aiogram.exceptions import TelegramBadRequest
 from config import BOT_TOKEN
 from database.settings import get_setting
 
-log = logging.getLogger(__name__)
 API = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 _session: Optional[aiohttp.ClientSession] = None
 
@@ -24,14 +22,12 @@ async def call(method: str, payload: dict) -> Optional[dict]:
     try:
         async with _session.post(API + method, json=payload) as resp:
             data = await resp.json()
-    except Exception as ex:
-        log.warning("%s: сеть недоступна: %s", method, ex)
+    except Exception:
         return None
     if data.get("ok"):
         return data
     if "not modified" in str(data.get("description", "")):
         return {"ok": True, "result": True}
-    log.warning("%s отклонён: %s", method, data.get("description"))
     return None
 
 
@@ -77,5 +73,5 @@ async def publish(bot, chat_id: int, message_id: Optional[int], rich_html: Optio
         await bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=markup)
     except TelegramBadRequest as ex:
         if "not modified" not in str(ex):
-            log.warning("Не удалось обновить сообщение: %s", ex)
+            pass
     return message_id, False

@@ -4,7 +4,6 @@
 сообщения (в том числе правки и сервисные), нажатия кнопок, реакции, вход и выход участников.
 Благодаря этому розыгрыши и проверки членства видят всех, а не только тех, кто писал текст.
 """
-import logging
 from typing import Any, Callable, Dict
 
 from aiogram import BaseMiddleware
@@ -13,7 +12,6 @@ from aiogram.types import Update
 from config import GROUP_ID
 from services import members
 
-log = logging.getLogger(__name__)
 
 
 async def register_update(update: Update, data: Dict[str, Any]):
@@ -46,5 +44,5 @@ class RegisterMiddleware(BaseMiddleware):
         try:
             await register_update(event, data)
         except Exception:
-            log.exception("Ошибка регистрации участника")
+            pass
         return await handler(event, data)

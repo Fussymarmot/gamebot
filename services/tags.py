@@ -1,4 +1,3 @@
-import logging
 from typing import Dict, Optional
 
 import aiosqlite
@@ -8,7 +7,6 @@ from aiogram.methods import TelegramMethod
 from config import GROUP_ID
 from database.core import DB_PATH
 
-log = logging.getLogger(__name__)
 
 perm_cache: Dict[int, str] = {}
 
@@ -43,6 +41,5 @@ async def enforce(bot: Bot, user_id: int, current: Optional[str]):
         return
     try:
         await set_member_tag(bot, user_id, expected)
-        log.info("Вечный тег возвращён: %s -> %r", user_id, expected)
-    except Exception as ex:
-        log.warning("Не удалось вернуть тег %s: %s", user_id, ex)
+    except Exception:
+        pass

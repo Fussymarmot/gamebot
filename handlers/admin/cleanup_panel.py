@@ -1,4 +1,3 @@
-import logging
 
 from aiogram import F
 from aiogram.fsm.context import FSMContext
@@ -16,7 +15,6 @@ from utils.fmt import esc
 from utils.targets import parse_free
 from utils.ui import kb
 
-log = logging.getLogger(__name__)
 
 ACTIONS = {
     "coins_all": ("рубины всех игроков", [
@@ -78,11 +76,10 @@ async def cl_do(cb: CallbackQuery):
         try:
             summary = await season_summary()
         except Exception:
-            log.exception("Не удалось собрать итоги сезона")
+            pass
     try:
         await batch(ACTIONS[what][1])
     except Exception:
-        log.exception("Очистка не удалась")
         await cb.message.answer("❌ Очистка не удалась, подробности в логе. Бэкап уже у тебя.")
         return
     await log_mod(ADMIN_ID, 0, "cleanup", what)
@@ -90,7 +87,7 @@ async def cl_do(cb: CallbackQuery):
         try:
             await cb.bot.send_message(GROUP_ID, summary)
         except Exception:
-            log.exception("Не удалось объявить итоги сезона")
+            pass
     await cb.message.answer(f"{e('check')} Готово: {esc(ACTIONS[what][0])}.")
     await cleanup_menu(cb)
 

@@ -1,4 +1,3 @@
-import logging
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -13,7 +12,6 @@ from utils.timeutils import parse_ts, ts
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 
 @router.callback_query(F.data.startswith("ap:"))
@@ -42,7 +40,6 @@ async def appeal_cb(cb: CallbackQuery):
             ADMIN_ID, f"📝 <b>Обжалование мута #{aid}</b>\n\n{esc(name)} <code>{uid}</code>{info}",
             reply_markup=kb([[("🔊 Снять мут", f"apd:{aid}:y"), ("❌ Отклонить", f"apd:{aid}:n")]]))
     except TelegramAPIError:
-        log.exception("Не удалось отправить обжалование")
         await cb.answer("Не получилось отправить жалобу", show_alert=True)
         return
     await cb.answer("Жалоба отправлена админу", show_alert=True)

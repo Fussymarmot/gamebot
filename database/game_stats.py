@@ -1,11 +1,9 @@
 """Результаты игр: счётчики побед/поражений, журнал партий и рейтинг."""
-import logging
 from typing import List, Optional, Tuple
 
 from database.core import q, x
 from utils.timeutils import ts
 
-log = logging.getLogger(__name__)
 
 # Подписчики на результат партии (например, экономика начисляет рубины)
 RESULT_HOOKS: list = []
@@ -22,7 +20,7 @@ async def add_game_result(user_id: int, game_type: str, result: str):
         try:
             await hook(user_id, game_type, result)
         except Exception:
-            log.exception("Ошибка обработчика результата игры")
+            pass
 
 
 async def get_game_top(game_type: Optional[str], limit: int = 3) -> List[Tuple]:

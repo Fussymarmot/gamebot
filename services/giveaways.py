@@ -1,5 +1,4 @@
 import json
-import logging
 from datetime import timedelta
 from typing import List, Optional, Tuple
 
@@ -12,7 +11,6 @@ from utils.emoji import e
 from utils.fmt import esc, rich
 from utils.timeutils import now, parse_ts, ts
 
-log = logging.getLogger(__name__)
 
 COLS = ("id", "title", "prize", "kind", "metric", "metric_days", "cond_type", "cond_value",
         "winners", "ends_at", "status", "message_id", "result", "created_at")
@@ -179,7 +177,7 @@ async def finish(bot, gid: int) -> Optional[List[int]]:
                 f"{announce_text(g, await entries_count(gid))}\n\n<b>Розыгрыш завершён.</b>",
                 chat_id=GROUP_ID, message_id=g["message_id"])
     except Exception:
-        log.exception("Не удалось объявить итоги розыгрыша %s", gid)
+        pass
     return winners
 
 

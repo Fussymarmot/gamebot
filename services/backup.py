@@ -2,7 +2,6 @@ import asyncio
 import glob
 import gzip
 import shutil
-import logging
 import os
 import sqlite3
 from datetime import datetime
@@ -16,7 +15,6 @@ from database.core import DB_PATH
 from database.messages import flush_messages
 from utils.timeutils import TZ
 
-log = logging.getLogger(__name__)
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
 KEEP = 7
 REQUIRED_TABLES = {"users", "messages", "settings"}
@@ -64,7 +62,6 @@ async def send_backup(bot: Bot, reason: str = "автоматический") ->
             caption=f"💾 Бэкап базы ({reason})\n{os.path.basename(path)}\n{size / 1024:.0f} КБ (сжатый файл)")
         return True
     except Exception:
-        log.exception("Не удалось отправить бэкап")
         return False
 
 

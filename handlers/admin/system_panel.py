@@ -337,7 +337,7 @@ async def bot_dbopt(cb: CallbackQuery):
 @panel.callback_query(F.data == "a:botcmd")
 async def bot_cmd(cb: CallbackQuery):
     ok = await set_commands(cb.bot)
-    await cb.answer("Команды обновлены" if ok else "Не получилось, смотри bot.log", show_alert=True)
+    await cb.answer("Команды обновлены" if ok else "Не получилось, попробуй позже", show_alert=True)
 
 
 @panel.callback_query(F.data == "a:botscan")
@@ -353,7 +353,7 @@ async def bot_backup(cb: CallbackQuery):
     await cb.answer("Делаю бэкап...")
     ok = await backup.send_backup(cb.bot, "по запросу")
     if not ok:
-        await cb.message.answer("❌ Не получилось отправить бэкап, смотри bot.log")
+        await cb.message.answer("❌ Не получилось отправить бэкап, попробуй позже")
 
 
 @panel.callback_query(F.data == "a:ico")

@@ -11,7 +11,6 @@
 всегда заканчивается.
 """
 import asyncio
-import logging
 import random
 import re
 from typing import Dict, List, Optional
@@ -31,7 +30,6 @@ from utils.emoji import RUBY, e
 from utils.fmt import esc
 
 router = Router()
-log = logging.getLogger(__name__)
 
 KEY = "poker"
 MAX_PLAYERS = 8
@@ -256,7 +254,7 @@ async def edit_table(lobby: Lobby, note: str = ""):
                                           message_id=d["msg_id"], reply_markup=empty_markup())
     except TelegramAPIError as ex:
         if "not modified" not in str(ex).lower():
-            log.info("Покер: не удалось обновить стол: %s", ex)
+            pass
 
 
 async def send_table(lobby: Lobby, note: str = ""):
@@ -285,10 +283,8 @@ async def push_dm(lobby: Lobby, s: Seat) -> bool:
                 except TelegramBadRequest as ex:
                     if "not modified" in str(ex).lower():
                         return True
-                    log.info("Покер: сообщение %s не отредактировать (%s), отправлю заново", s.uid, ex)
                     break
-                except TelegramAPIError as ex:
-                    log.info("Покер: не удалось обновить ЛС %s: %s", s.uid, ex)
+                except TelegramAPIError:
                     return False
             else:
                 return False
@@ -507,7 +503,6 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в покере")
         try:
             await bot.send_message(lobby.chat_id, "⚠️ В покере случилась ошибка, игра остановлена. Рубины не списаны.")
         except Exception:
@@ -518,7 +513,7 @@ async def run(lobby: Lobby):
             try:
                 await refresh_dms(lobby)
             except Exception:
-                log.exception("Покер: не удалось обновить личные сообщения при остановке")
+                pass
         await _delete(bot, lobby.chat_id, d.get("msg_id"))
         finish(lobby)
 

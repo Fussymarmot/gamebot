@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from datetime import timedelta
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -9,7 +8,6 @@ from database.settings import get_setting
 from utils.fmt import plain
 from utils.timeutils import now, parse_ts, ts
 
-log = logging.getLogger(__name__)
 
 announce: Optional[Callable[[str], Awaitable[None]]] = None
 notify_admin: Optional[Callable[[str], Awaitable[None]]] = None
@@ -128,6 +126,28 @@ async def transfer(src: int, dst: int, amount: int) -> bool:
         return True
 
 
+async def debit(uid: int, amount: int) -> bool:
+    """Списывает ставку. False, если рубинов не хватает (баланс не уходит в минус)."""
+    if amount <= 0:
+        return False
+    async with _pay_lock:
+        await ensure(uid)
+        c = await connect()
+        cur = await c.execute("UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?",
+                              (amount, uid, amount))
+        ok = cur.rowcount == 1
+        await cur.close()
+        await c.commit()
+        return ok
+
+
+async def credit(uid: int, amount: int):
+    """Выплата или возврат ставки. total_earned не трогаем: это не заработок за игры."""
+    if amount > 0:
+        await ensure(uid)
+        await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, uid))
+
+
 async def name_of(uid: int) -> str:
     r = await q("SELECT username, first_name FROM users WHERE user_id=?", (uid,), one=True)
     if r and r[0]:
@@ -140,7 +160,7 @@ async def say(text: str):
         try:
             await announce(text)
         except Exception:
-            log.exception("Не удалось отправить уведомление")
+            pass
 
 
 async def progress(uid: int, day: str):

@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import secrets
 import time
@@ -19,7 +18,6 @@ from utils import richui
 from utils.fmt import esc
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "seabattle"
 N = 8
 SHIPS = (4, 3, 2, 2, 1, 1, 1)

@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import time
 
 from aiogram import Bot
@@ -8,7 +7,6 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from config import ADMIN_ID, GROUP_ID
 from database.users import all_known_user_ids, count_members, get_member_flag, save_user, set_member
 
-log = logging.getLogger(__name__)
 
 _cache: dict = {}
 TTL_YES = 3600
@@ -68,8 +66,8 @@ async def refresh_members(bot: Bot):
             if not adm.user.is_bot:
                 await set_member(adm.user.id, True)
                 remember(adm.user.id, True)
-    except TelegramAPIError as ex:
-        log.warning("Не удалось получить админов группы: %s", ex)
+    except TelegramAPIError:
+        pass
     for uid in await all_known_user_ids():
         if uid == ADMIN_ID:
             continue
@@ -85,6 +83,4 @@ async def refresh_members(bot: Bot):
         total = await bot.get_chat_member_count(GROUP_ID)
     except TelegramAPIError:
         pass
-    log.info("Сканирование участников: проверено %s, вышли %s, в базе %s, в группе %s",
-             checked, left, await count_members(), total)
     return checked, left, await count_members(), total

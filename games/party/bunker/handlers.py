@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import time
 from collections import Counter
@@ -19,7 +18,6 @@ from utils.fmt import esc
 from utils.ui import btn, name_rows
 
 router = Router()
-log = logging.getLogger(__name__)
 KEY = "bunker"
 SCAVENGE_SEC = 20
 DAY_SEC = 60
@@ -154,7 +152,6 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        log.exception("Ошибка в игре «Бункер»")
         try:
             await bot.send_message(lobby.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
         except Exception:

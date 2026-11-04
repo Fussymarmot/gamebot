@@ -1,4 +1,3 @@
-import logging
 import re
 from typing import Any, Callable, Dict
 
@@ -10,7 +9,6 @@ from database.settings import get_setting
 from database.users import is_newbie
 from services import mods, modtools
 
-log = logging.getLogger(__name__)
 LINK = re.compile(r"https?://|t\.me/|telegram\.me/|www\.|\b\w+\.(?:ru|com|net|org|me|io|xyz|ly)\b", re.I)
 
 

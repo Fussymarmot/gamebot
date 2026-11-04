@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, Optional
@@ -20,7 +19,6 @@ from utils.timeutils import MSK
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 registry: Dict[int, dict] = {}
 lobbies: Dict[int, "Lobby"] = {}
@@ -66,8 +64,7 @@ async def can_dm(bot, uid: int) -> bool:
 async def dm(bot, uid: int, text: str, markup=None):
     try:
         return await bot.send_message(uid, text, reply_markup=markup)
-    except TelegramAPIError as ex:
-        log.warning("Не удалось написать игроку %s: %s", uid, ex)
+    except TelegramAPIError:
         return None
 
 
@@ -253,7 +250,6 @@ async def lobby_cb(cb: CallbackQuery):
         try:
             await g.start(lobby)
         except Exception:
-            log.exception("Ошибка запуска игры %s", g.key)
             finish(lobby)
             await cb.message.answer("⚠️ Не удалось запустить игру.")
 

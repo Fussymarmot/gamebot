@@ -11,7 +11,6 @@
 и не мешает лобби и играм на двоих.
 """
 import asyncio
-import logging
 import secrets
 from collections import defaultdict
 from typing import Dict, Optional
@@ -33,7 +32,6 @@ from utils.fmt import esc
 from utils.ui import kb
 
 router = Router()
-log = logging.getLogger(__name__)
 
 KEY = "coin"
 TITLE = "Орёл и решка"
@@ -162,8 +160,7 @@ async def _send_side(bot, chat_id: int, side: str):
     """Стикер выпавшей стороны. Если Telegram стикер не принял, пишем словами."""
     try:
         return await bot.send_sticker(chat_id, STICKERS[side])
-    except TelegramAPIError as ex:
-        log.warning("Не удалось отправить стикер %s: %s", side, ex)
+    except TelegramAPIError:
         return await bot.send_message(chat_id, f"{SIDE_ICON[side]} <b>{SIDE[side]}</b>")
 
 
