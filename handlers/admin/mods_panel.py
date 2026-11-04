@@ -28,7 +28,7 @@ async def view(target):
         rows.append([(f"🗑 Снять: {n[:20]}", f"a:mdr:{uid}")])
     if not rows_db:
         text += "<i>Модераторов нет. Права: /mute, /unmute, /warn.</i>\n"
-    text += (f"\nАвтомодерация флуда и ссылок: <b>{'вкл' if auto else 'выкл'}</b> (новичок: первые {hours} ч)\n"
+    text += (f"\nАвтомодерация ссылок от новичков: <b>{'вкл' if auto else 'выкл'}</b> (новичок: первые {hours} ч)\n"
              f"Недельный отчёт (воскресенье, 19:00): <b>{'вкл' if weekly else 'выкл'}</b>")
     rows += [[("➕ Назначить модератора", "a:mda")],
              [(f"{'✅' if auto else '❌'} Автомодерация", "a:mdau"), (f"⏱ Новичок: {hours} ч", "a:mdh")],

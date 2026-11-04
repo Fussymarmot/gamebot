@@ -33,19 +33,41 @@ def wrap(match) -> str:
     return f'<tg-emoji emoji-id="{CHAR_IDS[norm(raw)]}">{raw}</tg-emoji>'
 
 
+RAW_TAG = re.compile(r"</?raw>", re.I)
+
+
+def strip_raw(text: str) -> str:
+    """Убирает служебные теги <raw>...</raw> (Telegram их не знает)."""
+    return RAW_TAG.sub("", text)
+
+
+def raw(text: str) -> str:
+    """Обычные эмодзи внутри остаются обычными: PremiumEmoji их не заменит на кастомные.
+    Нужно там, где игрокам без Premium придётся эти эмодзи набирать самим (например, «Мемори»)."""
+    return f"<raw>{text}</raw>"
+
+
 def convert(text: str) -> str:
-    if not text or PATTERN is None:
+    if not text:
         return text
-    out, skip = [], 0
+    if PATTERN is None:
+        return strip_raw(text)
+    out, skip, raw_depth = [], 0, 0
     for part in TAG.split(text):
         if part.startswith("<") and part.endswith(">"):
             low = part.lower()
+            if low == "<raw>":
+                raw_depth += 1
+                continue
+            if low == "</raw>":
+                raw_depth = max(0, raw_depth - 1)
+                continue
             if low.startswith(("<tg-emoji", "<code", "<pre")):
                 skip += 1
             elif low.startswith(("</tg-emoji", "</code", "</pre")):
                 skip = max(0, skip - 1)
             out.append(part)
-        elif skip:
+        elif skip or raw_depth:
             out.append(part)
         else:
             out.append(PATTERN.sub(wrap, part))
@@ -82,6 +104,8 @@ class PremiumEmoji(BaseRequestMiddleware):
             except TelegramBadRequest as ex:
                 if not any(w in str(ex).lower() for w in ("entit", "emoji", "parse", "icon")):
                     raise
-                result = await make_request(bot, method)
+                plain = {f: strip_raw(getattr(method, f)) for f in ("text", "caption")
+                         if isinstance(getattr(method, f, None), str)}
+                result = await make_request(bot, method.model_copy(update=plain) if plain else method)
         await remember(result)
         return result

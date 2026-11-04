@@ -10,7 +10,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 import middlewares
-from config import BASE_DIR, BOT_TOKEN
+from config import ADMIN_ID, BASE_DIR, BOT_TOKEN
 from database.lifecycle import close as close_db
 from database.schema import init_db
 from database.settings import get_setting
@@ -50,6 +50,20 @@ async def on_startup(bot: Bot):
     start_scheduler(bot)
     me = await bot.me()
     log.info("Бот запущен: @%s (иконки на кнопках: %s)", me.username, "вкл" if ui.ICONS_ENABLED else "выкл")
+    if not me.can_read_all_group_messages:
+        # Режим приватности включён: в группе бот получает только команды и ответы на свои сообщения,
+        # поэтому слова и числа в Ассоциациях, WordSeek, «Взломай код» и т.д. он не увидит.
+        log.warning("Включён режим приватности: бот не видит обычные сообщения в группе")
+        try:
+            await bot.send_message(
+                ADMIN_ID, "⚠️ <b>У бота включён режим приватности.</b>\n\nИз-за него в группе он видит только "
+                          "команды и ответы на свои сообщения, поэтому игры со словами и числами "
+                          "(Ассоциации, WordSeek, Взломай код, Мемори) не заметят обычные сообщения.\n\n"
+                          "Как исправить: @BotFather → /mybots → бот → Bot Settings → Group Privacy → "
+                          "<b>Turn off</b>. Потом удали бота из группы и добавь снова (или просто сделай его "
+                          "админом) и перезапусти.")
+        except Exception:
+            log.info("Не удалось отправить предупреждение о режиме приватности админу")
 
 
 async def on_shutdown(bot: Bot):
