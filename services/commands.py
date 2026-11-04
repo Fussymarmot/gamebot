@@ -119,7 +119,9 @@ async def set_commands(bot: Bot):
         await bot.set_my_commands(user, scope=BotCommandScopeAllGroupChats())
         await bot.set_my_commands([c for c in user if c.command in ("help", "profile")],
                                   scope=BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands(admin, scope=BotCommandScopeChatMember(chat_id=GROUP_ID, user_id=ADMIN_ID))
+        # В общей группе /admin в меню не показываем: панель открывается только в личке с ботом
+        await bot.set_my_commands([c for c in admin if c.command != "admin"],
+                                  scope=BotCommandScopeChatMember(chat_id=GROUP_ID, user_id=ADMIN_ID))
         await bot.set_my_commands(admin, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
         return True
     except Exception:
