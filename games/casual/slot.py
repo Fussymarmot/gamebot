@@ -7,7 +7,7 @@
 Три барабана, на каждом по одному из четырёх символов (BAR, виноград, лимон, семёрка):
   • все три разные: проигрыш, ставка остаётся у бота;
   • два одинаковых: ставка возвращается;
-  • три одинаковых: ставка удваивается (выплата = ставка * COEF).
+  • три одинаковых: ставка умножается, во сколько раз зависит от символа (таблица TRIPLE_COEF).
 
 Ставка обязательна (минимум 1 рубин). Игра одиночная, поэтому не занимает «слот» активной игры в чате.
 """
@@ -34,8 +34,10 @@ router = Router()
 
 KEY = "slot"
 TITLE = "Слоты"
-COEF = 3            # во сколько раз умножается ставка при трёх одинаковых (выплата = ставка * COEF)
 SPIN_PAUSE = 3.2    # сколько идёт анимация автомата, сек (итог показываем после неё)
+# Во сколько раз умножается ставка при трёх одинаковых символах (ключ: номер символа из SYMBOLS).
+# Все тройки выпадают одинаково часто (1 из 64), поэтому множитель зависит только от «красоты» комбинации.
+TRIPLE_COEF = {3: 10, 0: 6, 1: 5, 2: 4}  # 777 ×10, BAR ×6, виноград ×5, лимон ×4
 SYMBOLS = ("BAR", "🍇", "🍋", "7️⃣")  # порядок символов в значении кубика Telegram (в итоговом сообщении не показываем)
 
 spinning: Set[int] = set()  # игроки, у которых автомат сейчас крутится
@@ -52,8 +54,18 @@ def result_of(reels: Tuple[int, int, int]) -> str:
     return {1: "win", 2: "draw", 3: "loss"}[len(set(reels))]
 
 
-def payout(result: str, stake: int) -> int:
-    return {"win": stake * COEF, "draw": stake, "loss": 0}[result]
+def coef_of(reels: Tuple[int, int, int]) -> int:
+    """Множитель ставки: у тройки зависит от символа, у остальных исходов он не используется."""
+    return TRIPLE_COEF[reels[0]] if len(set(reels)) == 1 else 0
+
+
+def payout(result: str, stake: int, coef: int = 0) -> int:
+    return {"win": stake * coef, "draw": stake, "loss": 0}[result]
+
+
+def table_text() -> str:
+    """Таблица выплат для подсказок: «7️⃣ ×10, BAR ×6, 🍇 ×5, 🍋 ×4»."""
+    return ", ".join(f"{SYMBOLS[i]} ×{c}" for i, c in sorted(TRIPLE_COEF.items(), key=lambda kv: -kv[1]))
 
 
 def again_markup(uid: int, stake: int):
@@ -94,18 +106,20 @@ async def spin(bot, chat_id: int, user, stake: int) -> Optional[str]:
             await ec.credit(user.id, stake)
             spinning.discard(user.id)
             return "Не удалось запустить автомат, ставка возвращена."
-        result = result_of(decode(value))
-        won = payout(result, stake)
+        reels = decode(value)
+        result = result_of(reels)
+        coef = coef_of(reels)
+        won = payout(result, stake, coef)
         if won:
             await ec.credit(user.id, won)
     except BaseException:
         spinning.discard(user.id)
         raise
-    asyncio.create_task(_finish(bot, chat_id, user, stake, dice, value, result))
+    asyncio.create_task(_finish(bot, chat_id, user, stake, dice, result, coef, reels))
     return None
 
 
-async def _finish(bot, chat_id: int, user, stake: int, dice: Message, value: int, result: str):
+async def _finish(bot, chat_id: int, user, stake: int, dice: Message, result: str, coef: int, reels):
     uid = user.id
     try:
         await pause.sleep(SPIN_PAUSE)
@@ -115,8 +129,9 @@ async def _finish(bot, chat_id: int, user, stake: int, dice: Message, value: int
         bal = f"Баланс: <b>{balance}</b> {RUBY}"
         # Сами барабаны не дублируем: их и так видно на анимации автомата.
         if result == "win":
-            text = (f"{e('party')} {who} срывает куш: <b>+{stake * (COEF - 1)}</b> {RUBY}\n"
-                    + card(f"Ставка <b>{stake}</b> ×{COEF} = <b>{stake * COEF}</b> {RUBY}", bal))
+            lead = "🎰 <b>ДЖЕКПОТ!</b> " if reels[0] == 3 else f"{e('party')} "
+            text = (f"{lead}{who} срывает куш: <b>+{stake * (coef - 1)}</b> {RUBY}\n"
+                    + card(f"Ставка <b>{stake}</b> ×{coef} = <b>{stake * coef}</b> {RUBY}", bal))
         elif result == "draw":
             text = (f"🤝 {who} остаётся при своих: ставка <b>{stake}</b> {RUBY} вернулась\n"
                     + card(bal))
@@ -141,7 +156,7 @@ async def cmd_slot(message: Message):
     usage = (f"🎰 <b>{TITLE}</b>\nСделай ставку командой: <code>/slot 50</code> (от 1 до {MAX_STAKE} {RUBY}).\n"
              "Или нажми «Слот-машина» в /games, там ставка выбирается кнопками.\n\n"
              "<i>Три разных символа: проигрыш. Два одинаковых: ставка возвращается. "
-             f"Три одинаковых: ставка умножается на {COEF}.</i>")
+             f"Три одинаковых: ставка умножается ({table_text()}).</i>")
     if len(parts) < 2:
         await message.answer(usage)
         return

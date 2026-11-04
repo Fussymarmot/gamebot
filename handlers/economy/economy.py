@@ -205,7 +205,7 @@ async def cmd_stats(message: Message):
                      LEFT JOIN users u ON u.user_id=g.user_id GROUP BY g.user_id HAVING w>0
                      ORDER BY w DESC LIMIT 3""")
     names = {"ttt": "крестики-нолики", "rps": "КНБ", "duel": "дуэль", "mafia": "мафия",
-             "memory": "мемори", "slot": "слот-машина", "code": "взломай код", "assoc": "ассоциации", "bunker": "бункер"}
+             "memory": "мемори", "slot": "слот-машина", "mines": "сапёр", "code": "взломай код", "assoc": "ассоциации", "bunker": "бункер"}
     text = f"{e('chart')} <b>Статистика бота</b>\n\nПользователей в личке: <b>{users}</b>\nУчастий в играх: <b>{parts}</b>\n"
     if pop:
         text += "Популярные игры: " + ", ".join(f"{names.get(k, k)} ({c})" for k, c in pop) + "\n"
