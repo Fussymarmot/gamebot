@@ -26,5 +26,7 @@ async def cmd_help(message: Message):
     perms = None if admin else await mods.perms_of(uid)
     text = f"{e('info')} <b>Все команды</b>\n"
     for emoji, title, lines in help_sections(admin, private, perms):
-        text += f"\n{e(emoji)} <b>{esc(title)}</b>\n" + "\n".join(esc(l) for l in lines) + "\n"
+        # Команды каждого раздела скрыты в раскрываемой HTML-цитате Telegram.
+        text += (f"\n{e(emoji)} <b>{esc(title)}</b>\n"
+                 f"<blockquote expandable>" + "\n".join(esc(l) for l in lines) + "</blockquote>")
     await message.answer(text)

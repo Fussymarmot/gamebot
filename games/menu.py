@@ -21,6 +21,7 @@ from games import invites, pause
 from games.core import GAMES, open_lobby
 from games.duel import duel, hangman, rps, seabattle, tictactoe  # noqa: F401: регистрируют игры в DUELS
 from games.duel.challenge import DUELS, MAX_STAKE, NEED_DM, STAKE_STEPS, create_challenge
+from games.casual import coinflip
 from games.party import roulette
 from games.party.poker import handlers as poker
 from games.party.mafia.handlers import open_mafia_lobby
@@ -41,11 +42,12 @@ ICONS = {
     "bunker": "5197253849450042423",     # Бункер
     "seabattle": "5188322825735267247",  # Морской бой
     "poker": EMOJI["poker"][0],          # Покер
+    "coin": "5379600444098093058",       # Орёл и решка
 }
 RUBY_ID = EMOJI["ruby"][0]
 FALLBACK = {
     "mafia": "🎭", "code": "🔑", "wordseek": "🔤", "assoc": "💬", "roulette": "🔫", "bunker": "🛡",
-    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬",
+    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙",
 }
 # Короткие подписи для кнопок (полные названия остаются в тексте и в лобби)
 LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер"}
@@ -60,19 +62,24 @@ ONE_LINE = 15  # подпись длиннее этого числа знако�
 
 PICKER_SEC = 60
 LOBBY_STAKE = ("roulette", "poker")  # групповые игры со ставкой (набор открывается как лобби)
+SOLO_STAKE = ("coin",)  # игры в одиночку: ставка обязательна, лобби и соперника нет
 pickers: Dict[int, Message] = {}  # меню выбора ставки: одно на игрока
 picker_tasks: Dict[int, asyncio.Task] = {}  # таймер автозакрытия меню
 awaiting: Dict[int, str] = {}  # игрок нажал «Своя сумма» и ждём от него число: {user_id: ключ игры}
 
 
 def has_stake(key: str) -> bool:
-    return key in LOBBY_STAKE or key in DUELS
+    return key in LOBBY_STAKE or key in SOLO_STAKE or key in DUELS
 
 
 def lobby_games():
     order = {k: i for i, k in enumerate(LOBBY_ORDER)}
     games = [(k, g) for k, g in GAMES.items() if features.is_on(g.command or k)]
     return sorted(games, key=lambda kg: order.get(kg[0], len(order)))
+
+
+def solo_games():
+    return [(k, coinflip.TITLE) for k in SOLO_STAKE if features.is_on(k)]
 
 
 def two_player():
@@ -122,7 +129,8 @@ def games_markup() -> InlineKeyboardMarkup:
     if features.is_on("mafia"):
         rows.append([game_button("mafia", "Мафия", "gm:play:mafia")])
     rows += pack([(label_of(k, g.title), game_button(k, label_of(k, g.title), f"gm:play:{k}"))
-                  for k, g in lobby_games()])
+                  for k, g in lobby_games()]
+                 + [(t, game_button(k, t, f"gm:play:{k}")) for k, t in solo_games()])
     rows += pack([(label_of(k, d.title), game_button(k, label_of(k, d.title), f"gm:play:{k}"))
                   for k, d in two_player()])
     if features.is_on("top_games"):
@@ -140,6 +148,10 @@ def games_text() -> str:
         for _, g in games:
             mx = f"–{g.max_players}" if g.max_players != g.min_players else ""
             t += f"• {esc(g.title)} ({g.min_players}{mx} игр.)\n"
+    solo = solo_games()
+    if solo:
+        t += "\n<b>В одиночку</b> (ставка обязательна, играешь против бота):\n"
+        t += f"• {esc(coinflip.TITLE)}: {code('/coin [ставка]')}, угадаешь сторону монеты и ставка удвоится\n"
     duo = two_player()
     if duo:
         t += "\n<b>На двоих</b> (игра начинается сразу, как только присоединится соперник):\n"
@@ -162,6 +174,8 @@ def is_enabled(key: str) -> bool:
         return features.is_on("mafia")
     if key in GAMES:
         return features.is_on(GAMES[key].command or key)
+    if key in SOLO_STAKE:
+        return features.is_on(key)
     return key in DUELS and features.is_on(key)
 
 
@@ -170,6 +184,8 @@ def title_of(key: str) -> str:
         return "Мафия"
     if key in GAMES:
         return GAMES[key].title
+    if key in SOLO_STAKE:
+        return coinflip.TITLE
     return DUELS[key].title if key in DUELS else key
 
 
@@ -181,6 +197,8 @@ async def launch(bot, chat_id: int, user, key: str, stake: int = 0, all_in: bool
         return await roulette.open_roulette(bot, chat_id, user, stake)
     if key == "poker":
         return await poker.open_poker(bot, chat_id, user, stake, all_in=all_in)
+    if key == "coin":
+        return await coinflip.open_coin(bot, chat_id, user, stake)
     if key in DUELS:
         return await create_challenge(bot, chat_id, user, key, stake)
     if key in GAMES:
@@ -214,7 +232,7 @@ def picker_markup(uid: int, key: str, balance: int) -> InlineKeyboardMarkup:
             [ruby_button(label, f"gm:all:{uid}:{key}")],
             [ui.btn("🚫 Отмена", f"gm:sx:{uid}")],
         ])
-    rows = [[InlineKeyboardButton(text="Без ставки", callback_data=f"gm:st:{uid}:{key}:0")]]
+    rows = [] if key in SOLO_STAKE else [[InlineKeyboardButton(text="Без ставки", callback_data=f"gm:st:{uid}:{key}:0")]]
     steps = [s for s in STAKE_STEPS if s <= balance]
     row = []
     for s in steps:
@@ -251,6 +269,9 @@ def picker_text(key: str, name: str, balance: int) -> str:
                 "• <b>Без ставки</b> — игра на фишки.\n"
                 "• <b>Со ставкой</b> — каждый играет на весь свой баланс рубинов. "
                 "Проиграть можно всё, ограничений нет.")
+    elif key in SOLO_STAKE:
+        rule = (f"Выбери ставку, потом сторону монеты. Угадаешь, и ставка умножится на {coinflip.COEF}, "
+                "не угадаешь, и она уйдёт боту.")
     else:
         rule = "Выбери ставку. Победитель забирает её у проигравшего."
     t = (f"{e('game')} <b>{esc(title_of(key))}</b>\n"
@@ -261,6 +282,8 @@ def picker_text(key: str, name: str, balance: int) -> str:
         t += "\n⚠️ <i>У тебя нет рубинов, игра со ставкой недоступна. Можно сыграть «Без ставки».</i>"
     if key != "poker" and balance < STAKE_STEPS[0]:
         t += f"\n<i>Ставки от {STAKE_STEPS[0]} {RUBY} станут доступны, когда накопишь рубины.</i>"
+        if key in SOLO_STAKE and balance >= 1:
+            t += "\n<i>Свою сумму можно ввести кнопкой «Своя сумма».</i>"
     return t
 
 
@@ -338,7 +361,7 @@ async def games_cb(cb: CallbackQuery):
     from middlewares.ratelimit import allow_lobby
     if act == "play":
         key = parts[2]
-        if key != "mafia" and key not in GAMES and key not in DUELS:
+        if key != "mafia" and key not in GAMES and key not in DUELS and key not in SOLO_STAKE:
             await cb.answer("Игра не найдена", show_alert=True)
             return
         if not is_enabled(key):
@@ -416,6 +439,9 @@ async def games_cb(cb: CallbackQuery):
         if not has_stake(key) or not is_enabled(key) or not 0 <= stake <= MAX_STAKE:
             await cb.answer("Эта игра отключена", show_alert=True)
             return
+        if key in SOLO_STAKE and stake < 1:
+            await cb.answer("В этой игре нужна ставка", show_alert=True)
+            return
         if not allow_lobby(user.id):
             await cb.answer("⏳ Слишком много действий. Попробуй немного позже.", show_alert=True)
             return
@@ -426,7 +452,7 @@ async def games_cb(cb: CallbackQuery):
                 await _close_picker(user.id, cb.message)
             return
         await _close_picker(user.id, cb.message)
-        await cb.answer("Набор открыт!")
+        await cb.answer("Выбери сторону монеты" if key in SOLO_STAKE else "Набор открыт!")
         return
 
     if act == "bot":

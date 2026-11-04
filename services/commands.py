@@ -38,6 +38,7 @@ COMMANDS = [
     ("wordseek", "WordSeek", "/wordseek: угадай слово из 5 букв", "games", False, False),
     ("seabattle", "Морской бой", "/seabattle [ставка]: морской бой, карта в личке (/seabattle bot: против бота)", "games", False, False),
     ("hangman", "Виселица", "/hangman [ставка]: виселица, слово загадываешь в личке с ботом", "games", False, False),
+    ("coin", "Орёл и решка", "/coin [ставка]: орёл или решка, угадай сторону монеты — ставка удвоится", "games", False, False),
     ("memory", "Мемори", "/memory: запомни эмодзи", "games", False, False),
     ("code", "Взломай код", "/code: угадай код из 4 цифр", "games", False, False),
     ("assoc", "Ассоциации", "/assoc: цепочка слов", "games", False, False),
