@@ -257,6 +257,8 @@ def picker_text(key: str, name: str, balance: int) -> str:
          f"Игрок: <b>{esc(name)}</b>\n\n"
          f"{rule}\n"
          f"У тебя: <b>{balance}</b> {RUBY}")
+    if key == "poker" and balance < 1:
+        t += "\n⚠️ <i>У тебя нет рубинов, игра со ставкой недоступна. Можно сыграть «Без ставки».</i>"
     if key != "poker" and balance < STAKE_STEPS[0]:
         t += f"\n<i>Ставки от {STAKE_STEPS[0]} {RUBY} станут доступны, когда накопишь рубины.</i>"
     return t
@@ -391,14 +393,19 @@ async def games_cb(cb: CallbackQuery):
         if key != "poker" or not is_enabled(key):
             await cb.answer("Эта игра отключена", show_alert=True)
             return
+        if (await ec.wallet(user.id))[0] < 1:
+            # Меню остаётся открытым, чтобы можно было выбрать «Без ставки».
+            await cb.answer("💸 У тебя 0 рубинов, со ставкой не сыграть. "
+                            "Выбери «Без ставки» или сначала накопи рубины.", show_alert=True)
+            return
         if not allow_lobby(user.id):
             await cb.answer("⏳ Слишком много действий. Попробуй немного позже.", show_alert=True)
             return
         err = await launch(cb.bot, cb.message.chat.id, user, key, all_in=True)
         if err:
+            await _answer_error(cb, err)      # сначала показываем сообщение, и только потом убираем меню
             if err != NEED_DM:
                 await _close_picker(user.id, cb.message)
-            await _answer_error(cb, err)
             return
         await _close_picker(user.id, cb.message)
         await cb.answer("Набор открыт!")
@@ -414,9 +421,9 @@ async def games_cb(cb: CallbackQuery):
             return
         err = await launch(cb.bot, cb.message.chat.id, user, key, stake)
         if err:
+            await _answer_error(cb, err)
             if err != NEED_DM:
                 await _close_picker(user.id, cb.message)
-            await _answer_error(cb, err)
             return
         await _close_picker(user.id, cb.message)
         await cb.answer("Набор открыт!")
@@ -428,9 +435,9 @@ async def games_cb(cb: CallbackQuery):
             return
         err = await seabattle.start_vs_bot(cb.bot, cb.message.chat.id, user)
         if err:
+            await _answer_error(cb, err)
             if err != NEED_DM:
                 await _close_picker(user.id, cb.message)
-            await _answer_error(cb, err)
             return
         await _close_picker(user.id, cb.message)
         await cb.answer("Партия против бота началась, смотри личку")

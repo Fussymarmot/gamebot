@@ -1,9 +1,9 @@
 """Покер (Техасский холдем) прямо в чате.
 
 /poker [бай-ин] или кнопка в /games открывает лобби (2–8 игроков, у каждого должна быть личка с ботом).
-Карты и текущая комбинация приходят игроку в личку и обновляются на каждой улице. Кнопки ходов (пас,
-чек/колл, рейз/ре-рейз, олл-ин, «Выйти») тоже находятся в личке: у каждого игрока свои, поэтому в группе их
-нажимать нельзя. Свой размер рейза можно написать боту в личку числом.
+У каждого игрока в личке ОДНО сообщение: стол, его карты, текущая комбинация, банк, стеки и кнопки хода (пас,
+чек/колл, рейз/ре-рейз, олл-ин, «Выйти»). Оно только редактируется и не удаляется, комбинация видна и в момент
+хода. В общем чате виден только стол (общие карты, банк, игроки). Свой размер рейза пишется боту в личку числом.
 
 Бай-ин необязателен: перед игрой выбирают «Без ставки» (игра на фишки) или «Со ставкой» — тогда каждый
 играет на весь свой баланс рубинов, и проиграть можно всё: ограничений на сумму нет. Рубины переходят от
@@ -17,11 +17,10 @@ import re
 from typing import Dict, List, Optional
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramRetryAfter
 from aiogram.filters import Command, Filter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import GROUP_ID
 from database.core import x
 from games import pause
 from games.core import dm, finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
@@ -72,13 +71,6 @@ def empty_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[])
 
 
-def hole_markup(lobby: Lobby, s: Seat) -> InlineKeyboardMarkup:
-    """Личная клавиатура под картами: выйти можно в любой момент, даже не в свой ход."""
-    if s.out:
-        return empty_markup()
-    return InlineKeyboardMarkup(inline_keyboard=[[pb("🚪 Выйти", f"pk:{lobby.gid}:0:l")]])
-
-
 def table_text(lobby: Lobby, note: str = "") -> str:
     d, t = lobby.data, lobby.data["table"]
     head = f"{e('poker')} <b>Покер · раздача #{t.hand_no}</b>\nБлайнды: {t.sb}/{t.bb}"
@@ -116,32 +108,93 @@ def table_text(lobby: Lobby, note: str = "") -> str:
     return "\n".join(lines)
 
 
-def turn_text(lobby: Lobby, s: Seat) -> str:
+def players_block(lobby: Lobby, me: Seat) -> List[str]:
     d, t = lobby.data, lobby.data["table"]
-    to_call = min(max(0, t.cur_bet - s.bet), s.stack)
-    need = f"Колл: {to_call}" if to_call else "Можно сделать чек"
-    txt = (f"👉 <b>Твой ход в покере!</b>\n"
-           f"Карты: {cards_html(s.hole)}\n"
-           f"{need} · банк {money(d, t.pot())}")
-    lim = t.raise_limits(s)
-    if d.get("await_raise") == s.uid and lim:
-        txt += f"\n\n✏️ <i>Напиши в этот чат сумму рейза числом: от {lim[0]} до {lim[1]}.</i>"
-    return txt
+    cur = t.current()
+    rows = []
+    for s in t.seats:
+        if s.out:
+            continue
+        mark = "👉" if s is cur and not t.runout else "🏳" if s.folded else "🔥" if s.allin else "▫️"
+        role = t.role_of(s)
+        row = f"{mark} <b>{esc(s.name)}</b>{' (ты)' if s is me else ''}{f' [{role}]' if role else ''}: {money(d, s.stack)}"
+        if s.bet:
+            row += f" · в ставке {s.bet}"
+        if s.folded:
+            row += " · пас"
+        elif s.last:
+            row += f" · {esc(s.last)}"
+        rows.append(row)
+    return rows
 
 
-def turn_markup(lobby: Lobby, s: Seat) -> InlineKeyboardMarkup:
-    """Кнопки хода для конкретного игрока. Они всегда в его личке и только в его сообщении."""
+def dm_text(lobby: Lobby, s: Seat) -> str:
+    """Единственное личное сообщение игрока: карты, стол, комбинация, ход. Всегда редактируется, не удаляется."""
+    d, t = lobby.data, lobby.data["table"]
+    head = f"{e('poker')} <b>Покер · раздача #{t.hand_no}</b> · {STREET_RU[t.street]}\nБлайнды: {t.sb}/{t.bb}"
+    if s.out:
+        why = "🚪 Ты вышел из-за стола." if s.leaving else "💀 У тебя закончились фишки."
+        txt = f"{head}\n\n{why}\nИтоговый стек: <b>{money(d, s.stack)}</b>"
+        if d.get("final_text"):
+            txt += "\n\n" + d["final_text"]
+        return txt
+    lines = [head, ""]
+    lines.append(f"Стол: {cards_html(t.board) if t.board else '<i>карты ещё не открыты</i>'}")
+    if s.in_hand and s.hole:
+        lines.append(f"Твои карты: {cards_html(s.hole)}")
+        lines.append(f"Комбинация: <b>{esc(describe_cards(s.hole, t.board))}</b>")
+        if s.folded:
+            lines.append("<i>Ты сбросил карты в этой раздаче.</i>")
+    else:
+        lines.append("<i>Ты ждёшь следующую раздачу.</i>")
+    lines += ["", f"Банк: <b>{money(d, t.pot())}</b>",
+              f"Твой стек: <b>{money(d, s.stack)}</b>" + (f" · в ставке {s.bet}" if s.bet else ""), ""]
+    lines += players_block(lobby, s)
+    cur = t.current()
+    if t.street == "done" and t.result:
+        net = t.result["won"].get(s.uid, 0) - s.total if s.in_hand else 0
+        lines += ["", result_text(lobby)]
+        if s.in_hand:
+            lines.append(f"<b>Твой итог раздачи: {'+' if net > 0 else '−' if net < 0 else ''}{abs(net)}</b>")
+        if not d.get("finished"):
+            lines.append("<i>Скоро следующая раздача.</i>")
+    elif t.runout:
+        lines += ["", "🔥 <b>Все в олл-ине</b>, карты открываются."]
+    elif cur is s:
+        to_call = min(max(0, t.cur_bet - s.bet), s.stack)
+        need = f"Колл: {to_call}" if to_call else "Можно сделать чек"
+        lines += ["", f"👉 <b>Твой ход!</b> {need} · на ход {TURN_SEC} с"]
+        lim = t.raise_limits(s)
+        if d.get("await_raise") == s.uid and lim:
+            lines.append(f"✏️ <i>Напиши в этот чат сумму рейза числом: от {lim[0]} до {lim[1]}.</i>")
+    elif cur is not None and s.in_hand and not s.folded:
+        lines += ["", f"⏳ Ходит: <b>{esc(cur.name)}</b>"]
+    elif cur is not None:
+        lines += ["", f"⏳ Ходит: <b>{esc(cur.name)}</b> (ты не в раздаче)"]
+    if s.leaving:
+        lines += ["", "🚪 <i>Ты выйдешь из-за стола: карты сброшены, остаток фишек останется за тобой.</i>"]
+    note = d.get("dm_note", {}).get(s.uid)
+    if note:
+        lines += ["", note]
+    if d.get("finished") and d.get("final_text"):
+        lines += ["", d["final_text"]]
+    return "\n".join(lines)
+
+
+def dm_markup(lobby: Lobby, s: Seat) -> InlineKeyboardMarkup:
+    """Кнопки в личке: в свой ход — пас/чек/колл/рейз/ре-рейз/олл-ин, «Выйти» — всегда."""
     d, t, gid = lobby.data, lobby.data["table"], lobby.gid
-    if t.current() is not s or t.street in ("idle", "done") or t.runout:
+    if s.out or s.leaving or d.get("finished"):
         return empty_markup()
+    exit_row = [pb("🚪 Выйти", f"pk:{gid}:0:l")]
+    if t.current() is not s or t.street in ("idle", "done") or t.runout:
+        return InlineKeyboardMarkup(inline_keyboard=[exit_row])
     pre = f"pk:{gid}:{d['seq']}:"
     lim = t.raise_limits(s)
     to_call = max(0, t.cur_bet - s.bet)
     rows: List[List[InlineKeyboardButton]] = []
     if d.get("raise_menu") and lim:
-        if d.get("await_raise") == s.uid:
-            rows.append([pb("◀️ Назад", pre + "b")])
-        else:
+        if d.get("await_raise") != s.uid:
             lo, hi = lim
             pot = t.pot()
             cands = [("Мин.", lo), ("½ банка", t.cur_bet + (pot + to_call) // 2),
@@ -154,32 +207,15 @@ def turn_markup(lobby: Lobby, s: Seat) -> InlineKeyboardMarkup:
                     opts.append(pb(f"{label} {v}", f"{pre}ra:{v}"))
             rows += [opts[i:i + 2] for i in range(0, len(opts), 2)]
             rows.append([pb("✏️ Своя сумма", pre + "cu")])
-            rows.append([pb("◀️ Назад", pre + "b")])
+        rows.append([pb("◀️ Назад", pre + "b")])
     else:
         call = "✅ Чек" if to_call <= 0 else f"✅ Колл {min(to_call, s.stack)}"
         rows.append([pb("🏳 Пас", pre + "f"), pb(call, pre + "c")])
         if lim:
-            raise_label = "Ре-рейз" if t.raises else "Рейз"
-            rows.append([pb(raise_label, pre + "r"),
+            rows.append([pb("⬆️ Ре-рейз" if t.raises else "⬆️ Рейз", pre + "r"),
                          pb(f"🔥 Олл-ин {s.stack}", pre + "a")])
-    rows.append([pb("🚪 Выйти", f"pk:{gid}:0:l")])
+    rows.append(exit_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def hole_text(lobby: Lobby, s: Seat, final: bool = False) -> str:
-    d, t = lobby.data, lobby.data["table"]
-    txt = (f"{e('poker')} <b>Покер · раздача #{t.hand_no}</b>\n\n"
-           f"Твои карты: {cards_html(s.hole)}\n")
-    if t.board:
-        txt += f"Стол: {cards_html(t.board)}\n"
-    txt += f"Комбинация: <b>{esc(describe_cards(s.hole, t.board))}</b>\n\nСтек: {money(d, s.stack)}"
-    if s.folded:
-        txt += "\n<i>Ты сбросил карты.</i>"
-    if final and t.result:
-        net = t.result["won"].get(s.uid, 0) - s.total
-        txt += f"\n<b>Итог раздачи: {'+' if net > 0 else '−' if net < 0 else ''}{abs(net)}</b>"
-    txt += ("\n<i>Эти карты видишь только ты. Кнопки ходов придут отдельным сообщением, когда будет твой ход.</i>")
-    return txt
 
 
 def my_cards_alert(lobby: Lobby, uid: int) -> str:
@@ -232,85 +268,56 @@ async def send_table(lobby: Lobby, note: str = ""):
     await _delete(lobby.bot, lobby.chat_id, old)
 
 
-async def send_holes(lobby: Lobby):
-    """Раздача: каждому в личку приходят его карты, комбинация и личная кнопка «Выйти»."""
-    d, t = lobby.data, lobby.data["table"]
-    bad = []
-    for s in t.seats:
-        if not s.in_hand:
-            continue
-        old = d["dm"].pop(s.uid, None)
-        await _delete(lobby.bot, s.uid, old)
-        msg = await dm(lobby.bot, s.uid, hole_text(lobby, s), hole_markup(lobby, s))
+async def push_dm(lobby: Lobby, s: Seat) -> bool:
+    """Обновляет личное сообщение игрока: редактирует его, а если его нет (или оно пропало) — отправляет новое.
+    Сообщения в личке никогда не удаляются."""
+    d = lobby.data
+    async with d["dm_lock"].setdefault(s.uid, asyncio.Lock()):
+        text, markup = dm_text(lobby, s), dm_markup(lobby, s)
+        mid = d["dm"].get(s.uid)
+        if mid:
+            for _ in range(2):
+                try:
+                    await lobby.bot.edit_message_text(text, chat_id=s.uid, message_id=mid, reply_markup=markup)
+                    return True
+                except TelegramRetryAfter as ex:
+                    await asyncio.sleep(min(ex.retry_after, 5))
+                except TelegramBadRequest as ex:
+                    if "not modified" in str(ex).lower():
+                        return True
+                    log.info("Покер: сообщение %s не отредактировать (%s), отправлю заново", s.uid, ex)
+                    break
+                except TelegramAPIError as ex:
+                    log.info("Покер: не удалось обновить ЛС %s: %s", s.uid, ex)
+                    return False
+            else:
+                return False
+        msg = await dm(lobby.bot, s.uid, text, markup)
         if msg:
             d["dm"][s.uid] = msg.message_id
-        elif s.uid not in d["dm_warned"]:
+            return True
+        if s.uid not in d["dm_warned"]:
             d["dm_warned"].add(s.uid)
-            bad.append(s.name)
-    if bad:
-        await lobby.bot.send_message(
-            lobby.chat_id, "⚠️ Не смог написать в личку: " + ", ".join(f"<b>{esc(n)}</b>" for n in bad) +
-                           "\n<i>Без лички с ботом играть нельзя: нажми Start у бота.</i>")
+            try:
+                await lobby.bot.send_message(
+                    lobby.chat_id, f"⚠️ Не смог написать в личку: <b>{esc(s.name)}</b>\n"
+                                   "<i>Без лички с ботом играть нельзя: нажми Start у бота.</i>")
+            except TelegramAPIError:
+                pass
+        return False
 
 
-async def refresh_holes(lobby: Lobby, final: bool = False):
+async def refresh_dms(lobby: Lobby):
+    """Обновляет личные сообщения всех игроков за столом (и один раз — выбывших)."""
     d, t = lobby.data, lobby.data["table"]
-
-    async def one(s: Seat):
-        mid = d["dm"].get(s.uid)
-        if not mid:
-            return
-        try:
-            await lobby.bot.edit_message_text(hole_text(lobby, s, final), chat_id=s.uid, message_id=mid,
-                                              reply_markup=hole_markup(lobby, s))
-        except TelegramAPIError:
-            pass
-
-    await asyncio.gather(*(one(s) for s in t.seats if s.in_hand and s.hole))
-
-
-async def ping_turn(lobby: Lobby, s: Seat):
-    """Личное сообщение «твой ход»: именно в нём игрок видит свои кнопки действий."""
-    msg = await dm(lobby.bot, s.uid, turn_text(lobby, s), turn_markup(lobby, s))
-    lobby.data["ping"] = (s.uid, msg.message_id) if msg else None
-
-
-async def edit_ping(lobby: Lobby):
-    """Обновляет кнопки в личном сообщении текущего игрока (например, при выборе размера рейза)."""
-    ping = lobby.data.get("ping")
-    if not ping:
-        return
-    uid, mid = ping
-    s = lobby.data["table"].seat_of(uid)
-    if not s:
-        return
-    try:
-        await lobby.bot.edit_message_text(turn_text(lobby, s), chat_id=uid, message_id=mid,
-                                          reply_markup=turn_markup(lobby, s))
-    except TelegramAPIError as ex:
-        if "not modified" not in str(ex).lower():
-            log.info("Покер: не удалось обновить кнопки хода: %s", ex)
-
-
-async def clear_ping(lobby: Lobby):
-    ping = lobby.data.get("ping")
-    lobby.data["ping"] = None
-    if ping:
-        await _delete(lobby.bot, ping[0], ping[1])
-
-
-async def clear_dm_buttons(lobby: Lobby):
-    """Игра окончена: убираем «Выйти» из личных сообщений, чтобы не нажимали впустую."""
-    d, t = lobby.data, lobby.data["table"]
+    targets = []
     for s in t.seats:
-        mid = d["dm"].get(s.uid)
-        if not mid:
-            continue
-        try:
-            await lobby.bot.edit_message_reply_markup(chat_id=s.uid, message_id=mid,
-                                                      reply_markup=empty_markup())
-        except TelegramAPIError:
-            pass
+        if s.out:
+            if s.uid in d["dm_done"]:
+                continue
+            d["dm_done"].add(s.uid)
+        targets.append(s)
+    await asyncio.gather(*(push_dm(lobby, s) for s in targets))
 
 
 # ---------- ход игры ----------
@@ -355,8 +362,9 @@ async def start_game(lobby: Lobby):
     sb = max(1, chips // 100)
     table = Table([Seat(uid, name, stakes[uid]) for uid, name in order], sb, sb * 2)
     lobby.data.update(table=table, chips0=chips, stakes=stakes, event=asyncio.Event(), pending=None, seq=0,
-                      raise_menu=False, await_raise=None, msg_id=None, dm={}, ping=None, timeouts={},
-                      dm_warned=set(), raised=0)
+                      raise_menu=False, await_raise=None, msg_id=None, dm={}, timeouts={},
+                      dm_warned=set(), raised=0, dm_lock={}, dm_done=set(), dm_note={}, finished=False,
+                      final_text="")
     lobby.task = asyncio.create_task(run(lobby))
 
 
@@ -431,12 +439,15 @@ async def tidy(lobby: Lobby, after_hand: bool):
         notes.append(f"📈 Блайнды растут: <b>{t.sb}/{t.bb}</b>")
     if notes:
         await lobby.bot.send_message(lobby.chat_id, "\n".join(notes))
+    if busted or left:
+        await refresh_dms(lobby)
 
 
 async def play_hand(lobby: Lobby):
     d, t, bot = lobby.data, lobby.data["table"], lobby.bot
-    await send_holes(lobby)
+    d["dm_note"].clear()
     await send_table(lobby)
+    await refresh_dms(lobby)
     revealed = False
     while t.street != "done":
         if t.runout:
@@ -446,25 +457,25 @@ async def play_hand(lobby: Lobby):
                 await bot.send_message(
                     lobby.chat_id, "🔥 <b>Все в олл-ине, карты открываются:</b>\n" + "\n".join(
                         f"• <b>{esc(s.name)}</b>: {cards_html(s.hole)}" for s in live))
+                await refresh_dms(lobby)
             await pause.sleep(RUNOUT_SEC)
             t.step_runout()
             if t.street != "done":
                 await send_table(lobby)
-                await refresh_holes(lobby)
+                await refresh_dms(lobby)
             continue
         seat = t.current()
         street = t.street
         d["seq"] += 1
         d["raise_menu"], d["await_raise"], d["pending"] = False, None, None
+        d["dm_note"].clear()
         d["event"].clear()
         await edit_table(lobby)
-        await ping_turn(lobby, seat)
+        await refresh_dms(lobby)        # у ходящего в этом сообщении появляются кнопки, у остальных они пропадают
         act = await wait_action(lobby, seat)
-        await clear_ping(lobby)
         perform(t, act)
         if t.street != street and t.street != "done":
             await send_table(lobby)
-            await refresh_holes(lobby)
     await finish_hand(lobby)
 
 
@@ -502,7 +513,12 @@ async def run(lobby: Lobby):
         except Exception:
             pass
     finally:
-        await clear_ping(lobby)
+        if not d.get("finished"):       # игра прервана: убираем кнопки из личек, сами сообщения остаются
+            d["finished"] = True
+            try:
+                await refresh_dms(lobby)
+            except Exception:
+                log.exception("Покер: не удалось обновить личные сообщения при остановке")
         await _delete(bot, lobby.chat_id, d.get("msg_id"))
         finish(lobby)
 
@@ -512,18 +528,15 @@ async def finish_hand(lobby: Lobby):
     await _delete(lobby.bot, lobby.chat_id, d.get("msg_id"))
     d["msg_id"] = None
     await lobby.bot.send_message(lobby.chat_id, result_text(lobby))
-    await refresh_holes(lobby, final=True)
+    await refresh_dms(lobby)
 
 
 async def settle(lobby: Lobby, final: Dict[int, int]) -> Dict[int, int]:
     """Рубины по итогам игры: проигравшие отдают (сколько есть на балансе), выигравшие делят собранное."""
     d = lobby.data
-    stakes = d.get("stakes") or {}
-    if not stakes:
-        stake = d.get("stake", 0)
-        if not stake and not d.get("all_in"):
-            return {}
-        stakes = {u: stake for u in final}
+    if not d.get("stake") and not d.get("all_in"):
+        return {}      # игра на фишки без ставки: рубины не двигаются
+    stakes = d.get("stakes") or {u: d.get("stake", 0) for u in final}
     net = {u: v - stakes.get(u, 0) for u, v in final.items()}
     winners = {u: v for u, v in net.items() if v > 0}
     if not winners:
@@ -570,8 +583,11 @@ async def finish_game(lobby: Lobby):
     if staked:
         lines.append("<i>Рубины переведены по итогам игры.</i>")
     await lobby.bot.send_message(lobby.chat_id, "\n".join(lines))
+    d["final_text"] = "\n".join(lines)
+    d["finished"] = True
+    d["dm_done"].clear()
+    await refresh_dms(lobby)
     await record_results(KEY, [s.uid for s in t.seats], winners)
-    await clear_dm_buttons(lobby)
 
 
 # ---------- кнопки ----------
@@ -616,8 +632,8 @@ async def poker_cb(cb: CallbackQuery):
         if cur is seat and not d["event"].is_set():
             d["pending"] = (uid, "fold", 0)
             d["event"].set()
-        await cb.answer("Ты уйдёшь из-за стола: карты в этой раздаче сбросятся, остаток фишек останется за тобой",
-                        show_alert=True)
+        await cb.answer("Ты уйдёшь из-за стола: карты сбросятся, остаток фишек останется за тобой")
+        await push_dm(lobby, seat)
         return
 
     cur = t.current()
@@ -656,9 +672,9 @@ async def poker_cb(cb: CallbackQuery):
             return
         d["raise_menu"] = act != "b"
         d["await_raise"] = uid if act == "cu" else None
-        await edit_table(lobby)
-        await edit_ping(lobby)
-        await cb.answer("Напиши сумму боту в личку" if act == "cu" else None)
+        d["dm_note"].pop(uid, None)
+        await push_dm(lobby, seat)
+        await cb.answer("Напиши сумму числом в этот чат" if act == "cu" else None)
     else:
         await cb.answer()
 
@@ -670,15 +686,9 @@ class AwaitingRaise(Filter):
         if not message.from_user or not message.text:
             return False
         uid = message.from_user.id
-        if message.chat.type == "private":
-            if message.chat.id != uid:
-                return False
-        elif message.chat.id != GROUP_ID:
+        if message.chat.type != "private" or message.chat.id != uid:
             return False
-        lobby = find_raise_lobby(uid)
-        if not lobby:
-            return False
-        if message.chat.type != "private" and message.chat.id != lobby.chat_id:
+        if not find_raise_lobby(uid):
             return False
         return bool(re.fullmatch(r"\d{1,9}", message.text.strip()))
 
@@ -693,27 +703,15 @@ async def custom_raise(message: Message):
     if cur is None or cur.uid != uid or d["event"].is_set():
         return
     lim = t.raise_limits(cur)
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
     if not lim:
         return
     n = min(int(message.text.strip()), lim[1])
     if n < lim[0]:
-        tmp = await message.answer(f"⚠️ Минимум {lim[0]} (это «поднять до», а не «добавить»). Напиши число ещё раз.")
-        asyncio.create_task(_forget(tmp))
+        d["dm_note"][uid] = f"⚠️ Минимум {lim[0]} (это «поднять до», а не «добавить»). Напиши число ещё раз."
+        await push_dm(lobby, cur)
         return
     d["pending"] = (uid, "raise", n)
     d["event"].set()
-
-
-async def _forget(msg: Message, sec: int = 6):
-    await asyncio.sleep(sec)
-    try:
-        await msg.delete()
-    except TelegramAPIError:
-        pass
 
 
 # ---------- запуск ----------
