@@ -1,7 +1,7 @@
 """Обработчики команд и кнопок (не игровые).
 
 user/        /start, /help
-economy/     монеты и профиль (economy.py), магазин (shop.py), розыгрыши (giveaway.py)
+economy/     рубины и профиль (economy.py), магазин (shop.py), розыгрыши (giveaway.py)
 moderation/  муты и предупреждения, жалобы, обжалования, роли модераторов, теги, очистка чата
 system/      пауза игр, проверка Rich, ID эмодзи
 admin/       админ-панель в личке (по файлу на раздел)
@@ -16,11 +16,10 @@ def get_routers():
     from games import ratings
     from games import menu as games_menu
     from games.casual import codebreaker, memory, wordseek
-    from games.duel import challenge, checkers, duel, hangman, rps, seabattle, tictactoe
+    from games.duel import challenge, duel, hangman, rps, seabattle, tictactoe
     from games.party import associations, roulette
     from games.party.bunker import handlers as bunker
     from games.party.mafia import handlers as mafia
-    from games.party.werewolf import handlers as werewolf
     from handlers import admin
     from handlers.economy import economy, giveaway, shop
     from handlers.moderation import admin_tools, appeals, mod_roles, moderation, tag_enforcer
@@ -32,9 +31,9 @@ def get_routers():
         common.router, ratings.router,
         giveaway.router, economy.router, shop.router, admin_tools.router, moderation.router,
         challenge.router, games_core.router,
-        tictactoe.router, rps.router, duel.router, mafia.router, werewolf.router, memory.router,
+        tictactoe.router, rps.router, duel.router, mafia.router, memory.router,
         codebreaker.router, associations.router, bunker.router, roulette.router,
-        checkers.router, seabattle.router, hangman.router, wordseek.router,
+        seabattle.router, hangman.router, wordseek.router,
         appeals.router, mod_roles.router, rich_test.router, games_menu.router, pause_cmds.router,
         emoji_helper.router, tag_enforcer.router,
     ]

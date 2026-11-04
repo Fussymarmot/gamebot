@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.game_stats import add_game_result
-from games.duel.challenge import open_challenge
+from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
@@ -61,7 +61,7 @@ class TTT:
 
 @router.message(Command("ttt"))
 async def cmd_ttt(message: Message):
-    await open_challenge(message, "ttt", "Крестики-нолики", "game", start_game)
+    await open_challenge(message, "ttt")
 
 
 async def start_game(msg, p1, n1, p2, n2):
@@ -71,6 +71,9 @@ async def start_game(msg, p1, n1, p2, n2):
     locks[gid] = asyncio.Lock()
     g.msg = await msg.answer(g.text(), reply_markup=g.kb(gid))
     asyncio.create_task(_watch(gid))
+
+
+register_duel("ttt", "Крестики-нолики", "game", start_game)
 
 
 async def _finish(gid):

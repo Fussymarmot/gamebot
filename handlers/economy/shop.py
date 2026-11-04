@@ -119,23 +119,23 @@ async def cmd_mytag(message: Message):
     uid = message.from_user.id
     cost = ec.price(ec.TAG_PRICE)
     if len(parts) < 2:
-        await message.answer(f"🏷 Тег рядом с именем на {ec.TAG_DAYS} дней стоит <b>{cost}</b> 🪙.\n"
+        await message.answer(f"🏷 Тег рядом с именем на {ec.TAG_DAYS} дней стоит <b>{cost}</b> ♦️.\n"
                              "Напиши: <code>/mytag текст</code> (до 16 символов). Админ проверит заказ, "
-                             "при отказе монеты вернутся.")
+                             "при отказе рубины вернутся.")
         return
     ok, reason, clean = titles.check(parts[1], titles.TAG_MAX_LEN)
     if not ok:
         await message.answer("❌ " + esc(reason))
         return
     if (await ec.wallet(uid))[0] < cost:
-        await message.answer(f"❌ Не хватает монет: нужно {cost}.")
+        await message.answer(f"❌ Не хватает рубинов: нужно {cost}.")
         return
     oid = await shop_core.create_order(uid, "tag", f"Тег «{clean}»", clean, cost, shop_core.tag_expiry())
     name = message.from_user.first_name or "Игрок"
     await message.bot.send_message(
         ADMIN_ID, f"🏷 <b>Заказ тега #{oid}</b>\n\n{esc(name)}: «{esc(clean)}» на {ec.TAG_DAYS} дней",
         reply_markup=kb([[("✅ Одобрить", f"ord:{oid}:ok"), ("❌ Отклонить", f"ord:{oid}:no")]]))
-    await message.answer(f"✅ Заказ #{oid} отправлен админу. Списано {cost} 🪙, при отказе вернём.")
+    await message.answer(f"✅ Заказ #{oid} отправлен админу. Списано {cost} ♦️, при отказе вернём.")
 
 
 @router.callback_query(F.data.startswith("ord:"))
@@ -166,7 +166,7 @@ async def order_cb(cb: CallbackQuery):
     await log_mod(ADMIN_ID, uid, "order", f"#{oid} {kind} {verdict}")
     try:
         await cb.bot.send_message(GROUP_ID, f"{'✅' if approve else '❌'} {name}: заказ «{rich(title)}» {verdict}."
-                                            + ("" if approve or not cost else f" Монеты ({cost}) возвращены."))
+                                            + ("" if approve or not cost else f" Рубины ({cost}) возвращены."))
     except TelegramAPIError:
         pass
     await cb.message.edit_text(cb.message.html_text + f"\n\n<b>Заказ {verdict}.</b>{esc(note)}")
@@ -175,7 +175,7 @@ async def order_cb(cb: CallbackQuery):
 
 async def shop_main(uid: int):
     coins, _, title, _ = await ec.wallet(uid)
-    text = (f"🛍 <b>Магазин</b>\n\nУ тебя: <b>{coins}</b> 🪙\nЗвание: <b>{esc(title) if title else '—'}</b>")
+    text = (f"🛍 <b>Магазин</b>\n\nУ тебя: <b>{coins}</b> ♦️\nЗвание: <b>{esc(title) if title else '—'}</b>")
     rows = [[("🏷 Титулы", f"shop:{uid}:titles"), ("🎟 Билеты", f"shop:{uid}:tickets")],
             [("📌 Тег на 7 дней", f"shop:{uid}:tag"), ("🎁 Призы", f"shop:{uid}:prizes")]]
     return text, kb(rows)
@@ -184,10 +184,10 @@ async def shop_main(uid: int):
 async def shop_titles(uid: int):
     coins = (await ec.wallet(uid))[0]
     have = set(await ec.owned(uid))
-    text = f"🏷 <b>Титулы</b>\nУ тебя: <b>{coins}</b> 🪙\n\n"
+    text = f"🏷 <b>Титулы</b>\nУ тебя: <b>{coins}</b> ♦️\n\n"
     rows = []
     for key, (name, base) in ec.SHOP.items():
-        text += f"• {rich(name)}: {ec.price(base)} 🪙" + (" <i>(куплено)</i>" if key in have else "") + "\n"
+        text += f"• {rich(name)}: {ec.price(base)} ♦️" + (" <i>(куплено)</i>" if key in have else "") + "\n"
         label = plain(name)
         rows.append([(f"Надеть {label}" if key in have else f"Купить {label}", f"shop:{uid}:{'eq' if key in have else 'buy'}:{key}")])
     rows.append([("🗑 Снять титул", f"shop:{uid}:off:-"), ("◀️ Назад", f"shop:{uid}:main")])
@@ -196,7 +196,7 @@ async def shop_titles(uid: int):
 
 async def shop_tickets(uid: int):
     price = ec.price(ec.TICKET_PRICE)
-    text = (f"🎟 <b>Билеты в розыгрыши</b>\n\nДополнительный билет повышает шанс выиграть. Цена: <b>{price}</b> 🪙, "
+    text = (f"🎟 <b>Билеты в розыгрыши</b>\n\nДополнительный билет повышает шанс выиграть. Цена: <b>{price}</b> ♦️, "
             f"до {shop_core.TICKET_MAX} билетов на розыгрыш. Сначала нужно участвовать в розыгрыше.\n\n")
     rows = []
     active = [g for g in await gw.active_list() if g["kind"] == "draw"]
@@ -212,8 +212,8 @@ async def shop_tickets(uid: int):
 
 async def shop_tag(uid: int):
     price = ec.price(ec.TAG_PRICE)
-    text = (f"📌 <b>Тег рядом с именем</b>\n\nНа {ec.TAG_DAYS} дней, цена <b>{price}</b> 🪙. Команда: "
-            "<code>/mytag текст</code> (до 16 символов). Админ проверит заказ, при отказе монеты вернутся.")
+    text = (f"📌 <b>Тег рядом с именем</b>\n\nНа {ec.TAG_DAYS} дней, цена <b>{price}</b> ♦️. Команда: "
+            "<code>/mytag текст</code> (до 16 символов). Админ проверит заказ, при отказе рубины вернутся.")
     return text, kb([[("◀️ Назад", f"shop:{uid}:main")]])
 
 
@@ -223,7 +223,7 @@ async def shop_prizes(uid: int):
     rows = []
     for item_id, title, base, stock in items:
         left = "" if stock < 0 else f", осталось {stock}"
-        text += f"• {rich(title)}: {ec.price(base)} 🪙{left}\n"
+        text += f"• {rich(title)}: {ec.price(base)} ♦️{left}\n"
         rows.append([(f"Купить: {plain(title)[:26]}", f"shop:{uid}:pz:{item_id}")])
     if not items:
         text += "<i>Пока нет призов. Админ может добавить их в панели.</i>"

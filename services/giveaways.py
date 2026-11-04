@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 COLS = ("id", "title", "prize", "kind", "metric", "metric_days", "cond_type", "cond_value",
         "winners", "ends_at", "status", "message_id", "result", "created_at")
 GAME_TITLES = {"all": "во всех играх", "ttt": "в крестиках-ноликах", "rps": "в КНБ", "duel": "в дуэлях",
-               "mafia": "в мафии", "werewolf": "в оборотнях", "memory": "в мемори",
+               "mafia": "в мафии", "memory": "в мемори",
                "code": "в «Взломай код»", "assoc": "в ассоциациях", "bunker": "в бункере"}
 
 

@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.game_stats import add_game_result
-from games.duel.challenge import open_challenge
+from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
@@ -41,7 +41,7 @@ class Duel:
 
 @router.message(Command("duel"))
 async def cmd_duel(message: Message):
-    await open_challenge(message, "duel", "Дуэль на скорость", "swords", start_duel)
+    await open_challenge(message, "duel")
 
 
 async def start_duel(msg, p1, n1, p2, n2):
@@ -64,6 +64,9 @@ async def start_duel(msg, p1, n1, p2, n2):
             await d.msg.edit_text(d.head() + "<i>Никто не нажал. Дуэль отменена.</i>")
         except Exception:
             pass
+
+
+register_duel("duel", "Дуэль на скорость", "swords", start_duel)
 
 
 def _finish(gid):

@@ -19,18 +19,18 @@ from utils.ui import kb
 log = logging.getLogger(__name__)
 
 ACTIONS = {
-    "coins_all": ("монеты всех игроков", [
+    "coins_all": ("рубины всех игроков", [
         ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM daily_tasks WHERE task='_earned'", ())]),
     "ratings_all": ("рейтинги всех игр", [("DELETE FROM game_stats", ()), ("DELETE FROM game_log", ())]),
     "ach_tasks": ("достижения и ежедневные задания", [("DELETE FROM achievements", ()), ("DELETE FROM daily_tasks", ())]),
-    "season": ("всё за сезон: монеты, рейтинги игр, достижения и задания", [
+    "season": ("всё за сезон: рубины, рейтинги игр, достижения и задания", [
         ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM game_stats", ()), ("DELETE FROM game_log", ()),
         ("DELETE FROM achievements", ()), ("DELETE FROM daily_tasks", ())]),
 }
 
 
 async def cleanup_menu(target):
-    rows = [[("🪙 Монеты одного игрока", "a:clu"), ("🪙 Монеты всех", "a:cla:coins_all")],
+    rows = [[("♦️ Рубины одного игрока", "a:clu"), ("♦️ Рубины всех", "a:cla:coins_all")],
             [("🏆 Рейтинг одной игры", "a:clg"), ("🏆 Все рейтинги", "a:cla:ratings_all")],
             [("🎖 Достижения и задания", "a:cla:ach_tasks")],
             [("🏁 Новый сезон", "a:cla:season")]]
@@ -64,8 +64,8 @@ async def season_summary() -> str:
         text += "<b>Больше всего побед:</b>\n" + "\n".join(lines) + "\n\n"
     if coins:
         lines = [f"{medals[i]} {esc(await get_user_name(u))}: {c}" for i, (u, c) in enumerate(coins)]
-        text += "<b>Больше всего монет:</b>\n" + "\n".join(lines) + "\n\n"
-    return text + "<i>Новый сезон начинается: рейтинги и монеты обнулены.</i>"
+        text += "<b>Больше всего рубинов:</b>\n" + "\n".join(lines) + "\n\n"
+    return text + "<i>Новый сезон начинается: рейтинги и рубины обнулены.</i>"
 
 
 @panel.callback_query(F.data.startswith("a:cld:"))
@@ -122,7 +122,7 @@ async def cl_game_do(cb: CallbackQuery):
 @panel.callback_query(F.data == "a:clu")
 async def cl_user(cb: CallbackQuery, state: FSMContext):
     await state.set_state(S.clean_user)
-    await show(cb, "Пришли @username или ID игрока, у которого обнулить монеты (можно переслать его сообщение):", CANCEL)
+    await show(cb, "Пришли @username или ID игрока, у которого обнулить рубины (можно переслать его сообщение):", CANCEL)
 
 
 @panel.message(S.clean_user)
@@ -136,5 +136,5 @@ async def cl_user_do(message: Message, state: FSMContext):
     await batch([("UPDATE wallets SET coins=0, total_earned=0 WHERE user_id=?", (uid,))])
     await log_mod(ADMIN_ID, uid, "cleanup", "coins one")
     await state.clear()
-    await message.answer(f"{e('check')} Монеты игрока {esc(await get_user_name(uid))} обнулены.")
+    await message.answer(f"{e('check')} Рубины игрока {esc(await get_user_name(uid))} обнулены.")
     await cleanup_menu(message)

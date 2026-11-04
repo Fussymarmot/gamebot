@@ -42,8 +42,8 @@ async def cmd_balance(message: Message):
     uid = message.from_user.id
     coins = (await ec.wallet(uid))[0]
     place, total = await ec.coin_rank(uid)
-    await message.answer(f"🪙 <b>Твой баланс:</b> {code(str(coins))}\n"
-                         f"Место в рейтинге монет: <b>{place}</b> из {total}")
+    await message.answer(f"♦️ <b>Твой баланс:</b> {code(str(coins))}\n"
+                         f"Место в рейтинге рубинов: <b>{place}</b> из {total}")
 
 
 async def topcoins_size() -> int:
@@ -57,9 +57,9 @@ async def topcoins_size() -> int:
 async def cmd_topcoins(message: Message):
     n = await topcoins_size()
     rows = await ec.top_coins(n)
-    text = f"🪙 <b>Топ-{n} по монетам</b>\n\n"
+    text = f"♦️ <b>Топ-{n} по рубинам</b>\n\n"
     if not rows:
-        await message.answer(text + "<i>Пока ни у кого нет монет. Сыграйте в игры!</i>")
+        await message.answer(text + "<i>Пока ни у кого нет рубинов. Сыграйте в игры!</i>")
         return
     for i, (uid, name, coins, title) in enumerate(rows):
         mark = e(MEDALS[i]) if i < 3 else f"{i + 1}."
@@ -67,7 +67,7 @@ async def cmd_topcoins(message: Message):
     me = message.from_user.id
     if me not in [r[0] for r in rows]:
         place, _ = await ec.coin_rank(me)
-        text += f"\n<i>Ты на {place}-м месте: {(await ec.wallet(me))[0]} монет</i>"
+        text += f"\n<i>Ты на {place}-м месте: {(await ec.wallet(me))[0]} рубинов</i>"
     await message.answer(text)
 
 
@@ -79,7 +79,7 @@ async def profile_text(uid: int, name: str, own: bool) -> str:
     text = f"👤 <b>{esc(name)}</b>" + (f" <i>{esc(title)}</i>" if title else "") + f"\nID: {code(str(uid))}\n\n"
     text += f"{e('game')} Игр сыграно: <b>{wins + losses + draws}</b>\n"
     text += f"🏆 Побед: <b>{wins}</b>, поражений: <b>{losses}</b>, ничьих: <b>{draws}</b>\n"
-    text += f"{e('gold')} Место по победам: <b>{place or '—'}</b>\n🪙 Монеты: <b>{coins}</b>\n"
+    text += f"{e('gold')} Место по победам: <b>{place or '—'}</b>\n♦️ Рубины: <b>{coins}</b>\n"
     if got:
         text += "\n<b>Достижения:</b> " + ", ".join(esc(ec.ACHIEVEMENTS[k][0]) for k in got)
     else:
@@ -109,7 +109,7 @@ async def cmd_achievements(message: Message):
     have = set(await ec.earned_keys(message.from_user.id))
     text = "🏆 <b>Достижения</b>\n\n"
     for key, (title, desc, base) in ec.ACHIEVEMENTS.items():
-        text += f"{'✅' if key in have else '🔒'} <b>{esc(title)}</b>: {esc(desc)} <i>(+{ec.reward(base)} 🪙)</i>\n"
+        text += f"{'✅' if key in have else '🔒'} <b>{esc(title)}</b>: {esc(desc)} <i>(+{ec.reward(base)} ♦️)</i>\n"
     await message.answer(text)
 
 
@@ -118,8 +118,8 @@ async def cmd_daily(message: Message):
     tasks = await ec.update_tasks(message.from_user.id)
     text = "📅 <b>Задания на сегодня</b>\n\n"
     for (title, progress, goal, done), key in zip(tasks, ec.TASKS):
-        text += f"{'✅' if done else '▫️'} {esc(title)}: {progress}/{goal} <i>(+{ec.reward(ec.TASKS[key][2])} 🪙)</i>\n"
-    await message.answer(text + f"\n<i>За игры в день можно получить до {ec.daily_cap()} монет. "
+        text += f"{'✅' if done else '▫️'} {esc(title)}: {progress}/{goal} <i>(+{ec.reward(ec.TASKS[key][2])} ♦️)</i>\n"
+    await message.answer(text + f"\n<i>За игры в день можно получить до {ec.daily_cap()} рубинов. "
                                 "Считаются только завершённые игры.</i>")
 
 
@@ -133,14 +133,14 @@ async def cmd_stats(message: Message):
     top = await q("""SELECT COALESCE(u.first_name,'Игрок'), SUM(g.wins) w FROM game_stats g
                      LEFT JOIN users u ON u.user_id=g.user_id GROUP BY g.user_id HAVING w>0
                      ORDER BY w DESC LIMIT 3""")
-    names = {"ttt": "крестики-нолики", "rps": "КНБ", "duel": "дуэль", "mafia": "мафия", "werewolf": "оборотни",
+    names = {"ttt": "крестики-нолики", "rps": "КНБ", "duel": "дуэль", "mafia": "мафия",
              "memory": "мемори", "code": "взломай код", "assoc": "ассоциации", "bunker": "бункер"}
     text = f"{e('chart')} <b>Статистика бота</b>\n\nПользователей в личке: <b>{users}</b>\nУчастий в играх: <b>{parts}</b>\n"
     if pop:
         text += "Популярные игры: " + ", ".join(f"{names.get(k, k)} ({c})" for k, c in pop) + "\n"
     if top:
         text += "Больше всего побед: " + ", ".join(f"{esc(n)} ({w})" for n, w in top) + "\n"
-    await message.answer(text + f"Выдано монет: <b>{coins}</b>, достижений: <b>{ach}</b>")
+    await message.answer(text + f"Выдано рубинов: <b>{coins}</b>, достижений: <b>{ach}</b>")
 
 
 @router.message(Command("coins"))
@@ -198,7 +198,7 @@ async def cmd_uncoins(message: Message):
             await message.answer(usage)
             return
     if amount <= 0:
-        await message.answer("❌ Укажи положительное число монет.")
+        await message.answer("❌ Укажи положительное число рубинов.")
         return
     if amount > 1000000:
         await message.answer("❌ Слишком большая сумма.")
@@ -206,11 +206,11 @@ async def cmd_uncoins(message: Message):
     reason = parts[1].strip() if len(parts) > 1 else ""
     taken = min(amount, balance)
     if taken <= 0:
-        await message.answer(f"У {esc(t.name)} нет монет.")
+        await message.answer(f"У {esc(t.name)} нет рубинов.")
         return
     await ec.add_coins(t.id, -taken)
     await log_mod(ADMIN_ID, t.id, "uncoins", f"-{taken}" + (f": {reason}" if reason else ""))
-    text = f"{e('check')} У {esc(t.name)} забрано <b>{taken}</b> 🪙. Теперь: {balance - taken}"
+    text = f"{e('check')} У {esc(t.name)} забрано <b>{taken}</b> ♦️. Теперь: {balance - taken}"
     if taken < amount:
         text += f"\n<i>Запрошено {amount}, но на балансе было только {balance}.</i>"
     await message.answer(text)

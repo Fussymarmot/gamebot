@@ -216,8 +216,8 @@ async def mafia_cb(cb: CallbackQuery):
                 await cb.answer("Ты в чёрном списке игр", show_alert=True)
                 return
             if not await can_dm(cb.bot, user.id):
-                me = await cb.bot.me()
-                await cb.answer("Сначала нажми Start у бота", url=f"https://t.me/{me.username}?start=mafia")
+                from utils.startlink import prompt_start
+                await prompt_start(cb, "mafia")
                 return
             if not g.add_player(user.id, user.first_name or user.username or "Игрок"):
                 await cb.answer("Ты уже в лобби")

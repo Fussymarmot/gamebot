@@ -1,7 +1,7 @@
 """Виселица на двоих.
 
 /hangman [ставка] открывает набор: создатель загадывает слово, присоединившийся угадывает.
-После «Старт» бот пишет загадывающему в личку и просит слово; когда оно пришло, в группе появляется
+Как только игрок присоединился, бот пишет загадывающему в личку и просит слово; когда оно пришло, в группе появляется
 виселица, а второй игрок угадывает буквы кнопками.
 """
 import asyncio
@@ -16,7 +16,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from database.game_stats import add_game_result
 from games.core import can_dm
-from games.duel.challenge import open_challenge
+from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils import richui
 from utils.fmt import esc
@@ -203,8 +203,7 @@ async def watch(bot, gid: str):
 
 @router.message(Command("hangman"))
 async def cmd_hangman(message: Message):
-    await open_challenge(message, KEY, "Виселица", "game", start_game, dm="creator",
-                         roles=("Загадывает слово (в личке)", "Отгадывает"))
+    await open_challenge(message, KEY)
 
 
 async def start_game(msg: Message, setter: int, setter_name: str, guesser: int, guesser_name: str):
@@ -234,6 +233,10 @@ async def start_game(msg: Message, setter: int, setter_name: str, guesser: int, 
         return
     await render(bot, gid, g)
     asyncio.create_task(watch(bot, gid))
+
+
+register_duel(KEY, "Виселица", "game", start_game, dm="creator",
+              roles=("Загадывает слово (в личке)", "Отгадывает"))
 
 
 class WaitingForWord(Filter):

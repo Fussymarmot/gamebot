@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from typing import Optional
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -25,7 +26,7 @@ def panel(lobby: Lobby, note: str = "") -> str:
     d = lobby.data
     alive = "\n".join(f"{'🔫' if u == d['turn'] else '🙂'} {esc(lobby.players[u])}" for u in d["alive"])
     dead = ", ".join(esc(lobby.players[u]) for u in lobby.players if u not in d["alive"])
-    stake = f"\nСтавка: <b>{d['stake']}</b> 🪙" if d.get("stake") else ""
+    stake = f"\nСтавка: <b>{d['stake']}</b> ♦️" if d.get("stake") else ""
     t = f"🔫 <b>Русская рулетка</b>{stake}\n\n{alive}"
     if dead:
         t += f"\n\n💀 {dead}"
@@ -50,7 +51,7 @@ async def start_game(lobby: Lobby):
         for u in poor:
             lobby.players.pop(u, None)
         if poor and len(lobby.players) < 2:
-            await lobby.bot.send_message(lobby.chat_id, "❌ Не у всех хватило монет на ставку, игра отменена.")
+            await lobby.bot.send_message(lobby.chat_id, "❌ Не у всех хватило рубинов на ставку, игра отменена.")
             finish(lobby)
             return
     order = list(lobby.players)
@@ -95,7 +96,7 @@ async def run(lobby: Lobby):
         pot = await settle(lobby, winner)
         text = f"🏆 <b>{esc(lobby.players[winner])}</b> остаётся в живых!"
         if pot:
-            text += f"\nВыигрыш: <b>{pot}</b> 🪙"
+            text += f"\nВыигрыш: <b>{pot}</b> ♦️"
         try:
             await d["msg"].edit_text(panel(lobby, text))
         except Exception:
@@ -153,27 +154,33 @@ async def ru_cb(cb: CallbackQuery):
     await cb.answer("Щёлк...")
 
 
+async def open_roulette(bot, chat_id: int, user, stake: int = 0) -> Optional[str]:
+    """Открывает лобби рулетки со ставкой (0 = без ставки). Возвращает None или текст ошибки."""
+    if stake and (await ec.wallet(user.id))[0] < stake:
+        return "У тебя не хватает рубинов на такую ставку."
+    err = await open_lobby(bot, chat_id, user, ROULETTE)
+    if err:
+        return err
+    lobby = lobbies.get(chat_id)
+    if lobby and stake:
+        lobby.data["stake"] = stake
+        lobby.data["note"] = f"Ставка: {stake} ♦️. Проигравшие отдают её победителю (сколько есть на балансе)."
+        await lobby.refresh()
+    return None
+
+
 @router.message(Command("roulette"))
 async def cmd_roulette(message: Message):
     parts = (message.text or "").split()
     stake = 0
     if len(parts) > 1:
         if not parts[1].isdigit() or not 1 <= int(parts[1]) <= MAX_STAKE:
-            await message.answer(f"❌ Ставка: число монет от 1 до {MAX_STAKE}. Пример: <code>/roulette 20</code>")
+            await message.answer(f"❌ Ставка: число рубинов от 1 до {MAX_STAKE}. Пример: <code>/roulette 20</code>")
             return
         stake = int(parts[1])
-        if (await ec.wallet(message.from_user.id))[0] < stake:
-            await message.answer("❌ У тебя не хватает монет на такую ставку.")
-            return
-    err = await open_lobby(message.bot, message.chat.id, message.from_user, ROULETTE)
+    err = await open_roulette(message.bot, message.chat.id, message.from_user, stake)
     if err:
         await message.answer(f"⚠️ {esc(err)}")
-        return
-    lobby = lobbies.get(message.chat.id)
-    if lobby and stake:
-        lobby.data["stake"] = stake
-        lobby.data["note"] = f"Ставка: {stake} 🪙. Проигравшие отдают её победителю (сколько есть на балансе)."
-        await lobby.refresh()
 
 
 ROULETTE = GameDef(

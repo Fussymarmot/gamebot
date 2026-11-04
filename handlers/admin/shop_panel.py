@@ -20,7 +20,7 @@ async def shop_view(target):
     premod = await titles.premoderation()
     pending = (await q("SELECT COUNT(*) FROM orders WHERE status='new'", one=True))[0]
     items = (await q("SELECT COUNT(*) FROM shop_items WHERE active=1", one=True))[0]
-    text = (f"🛍 <b>Магазин и звания</b>\n\nЭкономика: <b>{level}</b> (награды ×{ec.mult()}, лимит {ec.daily_cap()} монет в сутки)\n"
+    text = (f"🛍 <b>Магазин и звания</b>\n\nЭкономика: <b>{level}</b> (награды ×{ec.mult()}, лимит {ec.daily_cap()} рубинов в сутки)\n"
             f"Призов в магазине: {code(str(items))}\nЗаказов ждёт решения: {code(str(pending))}\n"
             f"Проверка своих званий: <b>{'включена' if premod else 'выключена'}</b>")
     rows = [[(f"⚖️ Экономика: {level} ➜", "a:shlvl")],
@@ -69,7 +69,7 @@ async def prizes_view(target):
     rows = []
     for item_id, title, price, stock in items:
         left = "без ограничения" if stock < 0 else f"осталось {stock}"
-        text += f"• {rich(title)}: {price} 🪙 ({left})\n"
+        text += f"• {rich(title)}: {price} ♦️ ({left})\n"
         rows.append([(f"🗑 {plain(title)[:28]}", f"a:shpd:{item_id}")])
     if not items:
         text += "<i>Призов пока нет.</i>"
@@ -102,7 +102,7 @@ async def prize_title(message: Message, state: FSMContext):
         return
     await state.update_data(title=t)
     await state.set_state(S.prize_price)
-    await message.answer("Цена в монетах (число от 5 до 5000):", reply_markup=CANCEL)
+    await message.answer("Цена в рубинах (число от 5 до 5000):", reply_markup=CANCEL)
 
 
 @panel.message(S.prize_price)
@@ -176,7 +176,7 @@ async def tt_view(target):
     text = "🏆 <b>Титулы магазина</b>\n\n"
     rows = []
     for key, (name, base) in ec.SHOP.items():
-        text += f"• {rich(name)}: {base} 🪙\n"
+        text += f"• {rich(name)}: {base} ♦️\n"
         rows.append([(f"✏️ {plain(name)[:26]}", f"a:tte:{key}")])
     if not ec.SHOP:
         text += "<i>Титулов нет.</i>\n"
@@ -199,7 +199,7 @@ async def tt_edit(cb: CallbackQuery, state: FSMContext):
         await tt_view(cb)
         return
     name, base = ec.SHOP[key]
-    await show(cb, f"🏆 <b>{rich(name)}</b>\nБазовая цена: {base} 🪙",
+    await show(cb, f"🏆 <b>{rich(name)}</b>\nБазовая цена: {base} ♦️",
                kb([[("✏️ Название", f"a:ttn:{key}"), ("💰 Цена", f"a:ttp:{key}")],
                    [("🗑 Удалить", f"a:ttd:{key}"), ("◀️ Назад", "a:ttl")]]))
 

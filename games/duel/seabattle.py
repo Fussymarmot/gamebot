@@ -3,6 +3,7 @@ import logging
 import random
 import secrets
 import time
+from typing import Optional
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -12,7 +13,7 @@ from database.game_stats import add_game_result
 from database.moderation import is_user_banned
 from games import pause
 from games.core import can_dm
-from games.duel.challenge import open_challenge
+from games.duel.challenge import NEED_DM, open_challenge, register_duel
 from games.invites import acquire, is_busy, release
 from utils import richui
 from utils.fmt import esc
@@ -215,28 +216,36 @@ async def start_game(msg, p1, n1, p2, n2):
     await begin(msg.bot, p1, n1, p2, n2, msg.chat.id)
 
 
+register_duel(KEY, "Морской бой", "game", start_game, dm="both")
+
+
+async def start_vs_bot(bot, chat_id: int, me) -> Optional[str]:
+    """Партия против бота. Возвращает None или текст ошибки (NEED_DM: надо нажать Start у бота)."""
+    if pause.is_paused():
+        return "Сейчас игры на паузе."
+    if await is_user_banned(me.id):
+        return "Ты в чёрном списке игр."
+    if is_busy(me.id) or not acquire(me.id, -me.id, KEY):
+        return "Ты уже участвуешь в игре."
+    if not await can_dm(bot, me.id):
+        release(me.id, -me.id)
+        return NEED_DM
+    await begin(bot, me.id, me.first_name or me.username or "Игрок", 0, "Бот", chat_id)
+    return None
+
+
 @router.message(Command("seabattle"))
 async def cmd_seabattle(message: Message):
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) > 1 and parts[1].strip().lower() in ("bot", "бот"):
-        me = message.from_user
-        if pause.is_paused():
-            await message.answer("⚠️ Сейчас игры на паузе.")
-            return
-        if await is_user_banned(me.id):
-            await message.answer("⚠️ Ты в чёрном списке игр.")
-            return
-        if is_busy(me.id) or not acquire(me.id, -me.id, KEY):
-            await message.answer("⚠️ Ты уже участвуешь в игре.")
-            return
-        if not await can_dm(message.bot, me.id):
-            release(me.id, -me.id)
+        err = await start_vs_bot(message.bot, message.chat.id, message.from_user)
+        if err == NEED_DM:
             bot_me = await message.bot.me()
             await message.answer(f"❌ Не могу написать в личку. Открой @{bot_me.username}, нажми Start и повтори.")
-            return
-        await begin(message.bot, me.id, me.first_name or me.username or "Игрок", 0, "Бот", message.chat.id)
+        elif err:
+            await message.answer(f"⚠️ {esc(err)}")
         return
-    await open_challenge(message, KEY, "Морской бой", "game", start_game, dm="both")
+    await open_challenge(message, KEY)
 
 
 async def ready_up(bot, gid, g, uid):

@@ -15,7 +15,7 @@ from utils.ui import kb
 
 METRICS = [("messages", "💬 Сообщения"), ("game:all", "🏆 Все игры"), ("game:ttt", "⭕ Крестики-нолики"),
            ("game:rps", "🎲 КНБ"), ("game:duel", "🗡 Дуэль"), ("game:mafia", "🎭 Мафия"),
-           ("game:werewolf", "🌙 Оборотни"), ("game:memory", "🎮 Мемори"), ("game:code", "🔑 Взломай код"),
+           ("game:memory", "🎮 Мемори"), ("game:code", "🔑 Взломай код"),
            ("game:assoc", "💬 Ассоциации"), ("game:bunker", "🛡 Бункер")]
 
 

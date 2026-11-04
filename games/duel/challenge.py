@@ -1,14 +1,18 @@
 """Открытый набор для игр на двоих.
 
-/ttt [ставка] (и так же /rps, /duel, /checkers, /seabattle, /hangman) открывает сообщение с кнопками
-«Присоединиться / Выйти / Старт / Отменить». Соперником становится первый, кто нажмёт «Присоединиться»,
-играть начинает создатель по кнопке «Старт».
+Запуск: кнопка в /games (бот спросит ставку) или команда /ttt [ставка] (так же /rps, /duel, /seabattle, /hangman).
+Бот отправляет сообщение с кнопками «Присоединиться / Отменить». Соперником становится первый, кто нажмёт
+«Присоединиться», и игра начинается сразу, кнопки «Старт» нет.
 
 Ставка необязательна: победитель забирает её у проигравшего (сколько есть на балансе, как в рулетке).
+
+Каждая игра один раз регистрируется через register_duel(...) в своём модуле: по этой записи её умеют
+запускать и команда, и кнопка меню.
 """
 import asyncio
 import logging
 import secrets
+from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Optional, Tuple
 
 from aiogram import F, Router
@@ -31,8 +35,29 @@ router = Router()
 log = logging.getLogger(__name__)
 
 MAX_STAKE = 200
+STAKE_STEPS = (10, 25, 50, 100, 200)  # быстрые ставки в меню игр
 WAIT_SEC = 300
+NEED_DM = "need_dm"  # create_challenge вернёт это, если создателю надо сначала нажать Start у бота
 StartFn = Callable[[Message, int, str, int, str], Awaitable[None]]
+
+
+@dataclass
+class DuelDef:
+    key: str
+    title: str
+    emoji: str
+    start: StartFn
+    dm: str = "none"  # none | creator | both: кому из игроков нужна личка с ботом
+    roles: Optional[Tuple[str, str]] = None
+
+
+DUELS: Dict[str, DuelDef] = {}
+
+
+def register_duel(key: str, title: str, emoji: str, start: StartFn, dm: str = "none",
+                  roles: Optional[Tuple[str, str]] = None):
+    DUELS[key] = DuelDef(key, title, emoji, start, dm, roles)
+
 
 challenges: Dict[str, dict] = {}
 # Ставка текущей партии для каждого игрока: {user_id: {game, opp, stake, bot, chat_id}}
@@ -44,7 +69,7 @@ def _name(user) -> str:
 
 
 def stake_text(stake: int) -> str:
-    return f"<b>{stake}</b> 🪙" if stake else "без ставки"
+    return f"<b>{stake}</b> ♦️" if stake else "без ставки"
 
 
 def text(c: dict, note: str = "") -> str:
@@ -56,14 +81,11 @@ def text(c: dict, note: str = "") -> str:
          f"{second}{joiner}\nСтавка: {stake_text(c['stake'])}\n\n")
     if note:
         return t + note
-    if c["joiner"]:
-        return t + "<i>Соперник найден. Создатель нажимает «Старт».</i>"
-    return t + "<i>Нажми «Присоединиться», чтобы сыграть.</i>"
+    return t + "<i>Нажми «Присоединиться»: игра начнётся сразу, как только найдётся соперник.</i>"
 
 
 def markup(cid: str):
-    return kb([[("➕ Присоединиться", f"oc:{cid}:j"), ("➖ Выйти", f"oc:{cid}:l")],
-               [("▶️ Старт", f"oc:{cid}:s"), ("🚫 Отменить", f"oc:{cid}:x")]])
+    return kb([[("➕ Присоединиться", f"oc:{cid}:j"), ("🚫 Отменить", f"oc:{cid}:x")]])
 
 
 async def refresh(c: dict):
@@ -79,44 +101,53 @@ def parse_stake(message: Message) -> Tuple[Optional[int], Optional[str]]:
         return 0, None
     arg = parts[1]
     if not arg.isdigit() or not 1 <= int(arg) <= MAX_STAKE:
-        return None, f"❌ Ставка: число монет от 1 до {MAX_STAKE}. Пример: <code>{esc(parts[0])} 20</code>"
+        return None, f"❌ Ставка: число рубинов от 1 до {MAX_STAKE}. Пример: <code>{esc(parts[0])} 20</code>"
     return int(arg), None
 
 
-async def open_challenge(message: Message, key: str, title: str, emoji: str, start: StartFn,
-                         dm: str = "none", roles: Optional[Tuple[str, str]] = None):
-    """dm: none | creator | both — кому из игроков нужна личка с ботом."""
-    me = message.from_user
-    if message.chat.id != GROUP_ID:
-        await message.answer("Игры запускаются в группе.")
-        return
+async def create_challenge(bot, chat_id: int, user, key: str, stake: int = 0) -> Optional[str]:
+    """Открывает набор. Возвращает None, если всё хорошо, иначе текст ошибки (или NEED_DM)."""
+    d = DUELS.get(key)
+    if not d:
+        return "Игра не найдена."
+    if chat_id != GROUP_ID:
+        return "Игры запускаются в группе."
     if pause.is_paused():
-        await message.answer("⏸ Сейчас игры на паузе.")
-        return
-    if await is_user_banned(me.id):
-        await message.answer("❌ Ты в чёрном списке игр")
-        return
+        return "Сейчас игры на паузе."
+    if await is_user_banned(user.id):
+        return "Ты в чёрном списке игр."
+    if stake and (await ec.wallet(user.id))[0] < stake:
+        return "У тебя не хватает рубинов на такую ставку."
+    if d.dm != "none" and not await can_dm(bot, user.id):
+        return NEED_DM
+    if not hold(user.id, key):
+        return "Ты уже участвуешь в игре."
+    cid = secrets.token_hex(3)
+    c = {"id": cid, "key": key, "title": d.title, "emoji": d.emoji, "start": d.start, "dm": d.dm, "roles": d.roles,
+         "creator": user.id, "cname": _name(user), "joiner": None, "jname": "", "stake": stake, "msg": None}
+    try:
+        c["msg"] = await bot.send_message(chat_id, text(c), reply_markup=markup(cid))
+    except Exception:
+        release(user.id)
+        raise
+    challenges[cid] = c
+    asyncio.create_task(_expire(cid))
+    return None
+
+
+async def open_challenge(message: Message, key: str):
+    """Команда /ttt [ставка] и ей подобные."""
     stake, err = parse_stake(message)
     if err:
         await message.answer(err)
         return
-    if stake and (await ec.wallet(me.id))[0] < stake:
-        await message.answer("❌ У тебя не хватает монет на такую ставку.")
-        return
-    if dm != "none" and not await can_dm(message.bot, me.id):
+    err = await create_challenge(message.bot, message.chat.id, message.from_user, key, stake)
+    if err == NEED_DM:
         bot_me = await message.bot.me()
         await message.answer(f"❌ Не могу написать тебе в личку. Открой @{bot_me.username}, "
                              "нажми Start и повтори команду.")
-        return
-    if not hold(me.id, key):
-        await message.answer("⚠️ Ты уже участвуешь в игре")
-        return
-    cid = secrets.token_hex(3)
-    c = {"id": cid, "key": key, "title": title, "emoji": emoji, "start": start, "dm": dm, "roles": roles,
-         "creator": me.id, "cname": _name(me), "joiner": None, "jname": "", "stake": stake, "msg": None}
-    challenges[cid] = c
-    c["msg"] = await message.answer(text(c), reply_markup=markup(cid))
-    asyncio.create_task(_expire(cid))
+    elif err:
+        await message.answer(f"⚠️ {esc(err)}")
 
 
 async def _expire(cid: str):
@@ -129,6 +160,45 @@ async def _expire(cid: str):
         await c["msg"].edit_text(text(c, "<i>Время ожидания вышло, набор закрыт.</i>"))
     except TelegramAPIError:
         pass
+
+
+async def _launch(msg: Message, c: dict):
+    """Соперник найден: проверяем ставку и сразу запускаем партию."""
+    cid, a, b = c["id"], c["creator"], c["joiner"]
+    if c["stake"]:
+        for uid in (a, b):
+            if (await ec.wallet(uid))[0] >= c["stake"]:
+                continue
+            if uid == b:
+                poor_name = c["jname"]
+                release(b)
+                c["joiner"], c["jname"] = None, ""
+                await refresh(c)
+                await msg.answer(f"❌ У <b>{esc(poor_name)}</b> не хватает рубинов на ставку, "
+                                 "ждём другого соперника.")
+            elif challenges.pop(cid, None) is c:
+                release(a, b)
+                try:
+                    await msg.edit_text(text(c, "<i>Набор отменён: у создателя не хватает рубинов на ставку.</i>"))
+                except TelegramAPIError:
+                    pass
+            return
+    if challenges.pop(cid, None) is not c:
+        return
+    stakes[a] = {"game": c["key"], "opp": b, "stake": c["stake"], "bot": msg.bot, "chat_id": msg.chat.id}
+    stakes[b] = {"game": c["key"], "opp": a, "stake": c["stake"], "bot": msg.bot, "chat_id": msg.chat.id}
+    try:
+        await msg.edit_text(text(c, "<b>Игра началась!</b>"))
+    except TelegramAPIError:
+        pass
+    try:
+        await c["start"](msg, a, c["cname"], b, c["jname"])
+    except Exception:
+        log.exception("Ошибка запуска игры %s", c["key"])
+        release(a, b)
+        stakes.pop(a, None)
+        stakes.pop(b, None)
+        await msg.answer("⚠️ Не удалось запустить игру.")
 
 
 @router.callback_query(F.data.startswith("oc:"))
@@ -155,26 +225,22 @@ async def challenge_cb(cb: CallbackQuery):
             await cb.answer("Ты в чёрном списке игр", show_alert=True)
             return
         if c["stake"] and (await ec.wallet(uid))[0] < c["stake"]:
-            await cb.answer("Не хватает монет на ставку", show_alert=True)
+            await cb.answer("Не хватает рубинов на ставку", show_alert=True)
             return
         if c["dm"] == "both" and not await can_dm(cb.bot, uid):
-            bot_me = await cb.bot.me()
-            await cb.answer("Сначала нажми Start у бота", url=f"https://t.me/{bot_me.username}?start=game")
+            from utils.startlink import prompt_start
+            await prompt_start(cb, "game")
+            return
+        # пока шли проверки, место могли занять, а набор отменить
+        if challenges.get(cid) is not c or c["joiner"]:
+            await cb.answer("Место уже занято", show_alert=True)
             return
         if not hold(uid, c["key"]):
             await cb.answer("Ты уже участвуешь в игре", show_alert=True)
             return
         c["joiner"], c["jname"] = uid, _name(user)
         await cb.answer("Ты в игре!")
-        await refresh(c)
-    elif act == "l":
-        if uid != c["joiner"]:
-            await cb.answer("Тебя нет в этой игре")
-            return
-        release(uid)
-        c["joiner"], c["jname"] = None, ""
-        await cb.answer("Ты вышел")
-        await refresh(c)
+        await _launch(cb.message, c)
     elif act == "x":
         if uid not in (c["creator"], ADMIN_ID):
             await cb.answer("Отменить может создатель или админ", show_alert=True)
@@ -183,36 +249,8 @@ async def challenge_cb(cb: CallbackQuery):
         release(c["creator"], c["joiner"] or 0)
         await cb.message.edit_text(text(c, "<i>Набор отменён.</i>"))
         await cb.answer()
-    elif act == "s":
-        if uid not in (c["creator"], ADMIN_ID):
-            await cb.answer("Начать может создатель или админ", show_alert=True)
-            return
-        if not c["joiner"]:
-            await cb.answer("Пока нет соперника", show_alert=True)
-            return
-        if pause.is_paused():
-            await cb.answer("Сейчас игры на паузе", show_alert=True)
-            return
-        a, b = c["creator"], c["joiner"]
-        if c["stake"]:
-            poor = [n for u, n in ((a, c["cname"]), (b, c["jname"])) if (await ec.wallet(u))[0] < c["stake"]]
-            if poor:
-                await cb.answer("Не хватает монет на ставку: " + ", ".join(poor), show_alert=True)
-                return
-        challenges.pop(cid, None)
-        stakes[a] = {"game": c["key"], "opp": b, "stake": c["stake"], "bot": cb.bot, "chat_id": cb.message.chat.id}
-        stakes[b] = {"game": c["key"], "opp": a, "stake": c["stake"], "bot": cb.bot, "chat_id": cb.message.chat.id}
-        try:
-            await cb.message.edit_text(text(c, "<b>Игра началась!</b>"))
-        except TelegramAPIError:
-            pass
+    else:
         await cb.answer()
-        try:
-            await c["start"](cb.message, a, c["cname"], b, c["jname"])
-        except Exception:
-            log.exception("Ошибка запуска игры %s", c["key"])
-            release(a, b)
-            await cb.message.answer("⚠️ Не удалось запустить игру.")
 
 
 async def stake_hook(user_id: int, game_type: str, result: str):
@@ -231,7 +269,7 @@ async def stake_hook(user_id: int, game_type: str, result: str):
         await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (pay, user_id))
     try:
         await entry["bot"].send_message(
-            entry["chat_id"], f"💰 Ставка: победитель получает <b>{pay}</b> 🪙")
+            entry["chat_id"], f"💰 Ставка: победитель получает <b>{pay}</b> ♦️")
     except Exception:
         pass
 

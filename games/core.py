@@ -202,8 +202,8 @@ async def lobby_cb(cb: CallbackQuery):
             return
         if g.needs_dm:
             if not await can_dm(cb.bot, user.id):
-                me = await cb.bot.me()
-                await cb.answer("Сначала нажми Start у бота", url=f"https://t.me/{me.username}?start=game")
+                from utils.startlink import prompt_start
+                await prompt_start(cb, "game")
                 return
         lobby.players[user.id] = name
         await cb.answer("Ты в игре!")

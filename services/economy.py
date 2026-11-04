@@ -14,7 +14,7 @@ announce: Optional[Callable[[str], Awaitable[None]]] = None
 notify_admin: Optional[Callable[[str], Awaitable[None]]] = None
 
 REWARD = {"win": 4, "draw": 1, "loss": 1}
-WIN_BONUS = {"mafia": 6, "werewolf": 6, "bunker": 6}
+WIN_BONUS = {"mafia": 6, "bunker": 6}
 DAILY_CAP = 40
 COOLDOWN_SEC = 60
 HOURLY_LIMIT = 12
@@ -37,7 +37,7 @@ ACHIEVEMENTS: Dict[str, Tuple[str, str, int]] = {
     "champion": ("Чемпион", "Одержать 10 побед", 30),
     "streak5": ("Серия побед", "Выиграть 5 игр подряд", 20),
     "explorer": ("Исследователь", "Сыграть в 5 разных игр", 15),
-    "rich": ("Богач", "Накопить 300 монет", 30),
+    "rich": ("Богач", "Накопить 300 рубинов", 30),
     "regular": ("Постоянный игрок", "Играть в 7 разных дней", 20),
 }
 TASKS: Dict[str, Tuple[str, int, int]] = {
@@ -154,7 +154,7 @@ async def process(uid: int, game: Optional[str] = None, result: Optional[str] = 
                       (uid, day, key, prog, 1 if (done or was) else 0)))
         if done and not was:
             gain += reward(base)
-            lines.append(f"📅 {{n}} выполнил(а) задание «{name}» и получает {reward(base)} монет!")
+            lines.append(f"📅 {{n}} выполнил(а) задание «{name}» и получает {reward(base)} рубинов!")
     have = {r[0] for r in await q("SELECT key FROM achievements WHERE user_id=?", (uid,))}
     cond = {
         "first_win": p["wins"] >= 1, "veteran": p["games"] >= 50, "champion": p["wins"] >= 10,
@@ -166,7 +166,7 @@ async def process(uid: int, game: Optional[str] = None, result: Optional[str] = 
             name, _, base = ACHIEVEMENTS[key]
             stmts.append(("INSERT OR IGNORE INTO achievements (user_id, key, earned_at) VALUES (?,?,?)", (uid, key, ts())))
             gain += reward(base)
-            lines.append(f"🏆 {{n}} получил(а) достижение «{name}»! (+{reward(base)} монет)")
+            lines.append(f"🏆 {{n}} получил(а) достижение «{name}»! (+{reward(base)} рубинов)")
     if gain:
         stmts.append(("UPDATE wallets SET coins = coins + ?, total_earned = total_earned + ? WHERE user_id=?",
                       (gain, gain, uid)))
@@ -233,7 +233,7 @@ async def buy(uid: int, key: str) -> Tuple[bool, str]:
     cost = price(base)
     coins = (await wallet(uid))[0]
     if coins < cost:
-        return False, f"Не хватает монет: нужно {cost}, у тебя {coins}."
+        return False, f"Не хватает рубинов: нужно {cost}, у тебя {coins}."
     await batch([("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (cost, uid)),
                  ("INSERT INTO purchases (user_id, item, bought_at) VALUES (?,?,?)", (uid, key, ts()))])
     return True, f"Куплено: {plain(title)}!"

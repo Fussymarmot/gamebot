@@ -57,7 +57,7 @@ async def games_view(cb: CallbackQuery):
     rows = [[("🎭 Мафия", "a:gs:mf"), ("🌙 Оборотни", "a:gs:ww")],
             [("💬 Ассоциации", "a:gs:as")],
             [("➖", "a:gtop:-1"), (f"🏆 Топ-{n}", "a:gtop:0"), ("➕", "a:gtop:1")],
-            [(f"🪙 Топ монет: {await coins_size()} ➜", "a:gcoin")],
+            [(f"♦️ Топ рубинов: {await coins_size()} ➜", "a:gcoin")],
             [("🤖 ИИ-рассказчик", "a:ai")]]
     paused = pause.is_paused()
     rows.append([("▶️ Продолжить игры" if paused else "⏸ Пауза для игр", "a:gpause")])

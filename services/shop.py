@@ -51,7 +51,7 @@ async def buy_prize(uid: int, item_id: int) -> Tuple[bool, str, Optional[int]]:
         return False, "Товар закончился.", None
     coins = (await ec.wallet(uid))[0]
     if coins < cost:
-        return False, f"Не хватает монет: нужно {cost}, у тебя {coins}.", None
+        return False, f"Не хватает рубинов: нужно {cost}, у тебя {coins}.", None
     if stock > 0:
         await x("UPDATE shop_items SET stock = stock - 1 WHERE id=?", (item_id,))
     oid = await create_order(uid, "prize", title, str(item_id), cost)
@@ -72,7 +72,7 @@ async def buy_ticket(uid: int, gid: int) -> Tuple[bool, str]:
     cost = ec.price(ec.TICKET_PRICE)
     coins = (await ec.wallet(uid))[0]
     if coins < cost:
-        return False, f"Не хватает монет: нужно {cost}, у тебя {coins}."
+        return False, f"Не хватает рубинов: нужно {cost}, у тебя {coins}."
     await batch([("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (cost, uid)),
                  ("UPDATE giveaway_entries SET tickets = tickets + 1 WHERE giveaway_id=? AND user_id=?", (gid, uid))])
     return True, f"Билет куплен. Всего билетов: {have + 1}."
