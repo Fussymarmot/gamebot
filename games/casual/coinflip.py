@@ -43,8 +43,8 @@ CHOICE_SEC = 60   # сколько живут кнопки выбора стор
 
 # Стикеры выпавшей стороны. Чтобы поменять, просто замени file_id.
 STICKERS = {
-    "heads": "CAACAgIAAxkBAAEIGopq62v7hmZsWmSiHIcWFyu4vRGclgACQ6wAAlxRWUsmOlVizIkQSj0E",  # орёл
-    "tails": "CAACAgIAAxkBAAEIGohq62voKP08his60q8J8_Hyi7lNdAACMqoAAoGuWEuSCmFwmQdt1j0E",  # решка
+    "heads": "CAACAgIAAxkBAAEIGxZq65fAr0u_Rswl78ESeT0aItGFowACWbAAAg8wYEviz3zJMmrBZT0E",  # орёл
+    "tails": "CAACAgIAAxkBAAEIGxhq65fVNXy1myBi9rc4AtP0oe3gowACo7EAAthrYEtII7_FeMawuT0E",  # решка
 }
 SIDE = {"heads": "Орёл", "tails": "Решка"}
 SIDE_ICON = {"heads": "🦅", "tails": "🪙"}
