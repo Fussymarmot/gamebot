@@ -82,6 +82,7 @@ class GameDef:
     start: Callable[["Lobby"], Awaitable[None]]
     needs_dm: bool = False
     command: str = ""
+    dm_note: str = ""  # подсказка в лобби про личку; по умолчанию — про роли
 
 
 def register(game: GameDef):
@@ -105,7 +106,8 @@ class Lobby:
         g = self.game
         names = "\n".join(f"• {esc(n)}" for n in self.players.values()) or "<i>пока никого</i>"
         mx = f"–{g.max_players}" if g.max_players != g.min_players else ""
-        dm_note = ("\n<i>Роли приходят в личку: один раз нажми Start у бота.</i>" if g.needs_dm else "")
+        dm_note = (f"\n<i>{esc(g.dm_note or 'Роли приходят в личку: один раз нажми Start у бота.')}</i>"
+                   if g.needs_dm else "")
         note = f"\n<b>{esc(self.data['note'])}</b>" if self.data.get("note") else ""
         return (f"{e(g.emoji)} <b>{esc(g.title)}</b>\n<i>{esc(g.description)}</i>{note}\n\n"
                 f"Игроков: <b>{len(self.players)}</b> (нужно {g.min_players}{mx})\n\n{names}{dm_note}")

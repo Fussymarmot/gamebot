@@ -1,15 +1,16 @@
 """Меню игр: /games и кнопки запуска.
 
-Любую игру можно запустить кнопкой. Для игр со ставкой (игры на двоих и рулетка) после нажатия бот
-предлагает выбрать ставку, затем открывает набор. Команды (/ttt 20, /roulette 50, /seabattle bot...)
-работают как раньше.
+Любую игру можно запустить кнопкой. Для игр со ставкой (игры на двоих, рулетка и покер) после нажатия бот
+предлагает выбрать ставку: готовой кнопкой или своей суммой (кнопка «Своя сумма», число пишется в чат).
+Затем открывается набор. Команды (/ttt 20, /roulette 50, /poker 100, /seabattle bot...) работают как раньше.
 """
 import asyncio
+import re
 from typing import Dict, List, Optional
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
-from aiogram.filters import Command
+from aiogram.filters import Command, Filter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import ADMIN_ID, GROUP_ID
@@ -20,6 +21,7 @@ from games.core import GAMES, open_lobby
 from games.duel import duel, hangman, rps, seabattle, tictactoe  # noqa: F401: регистрируют игры в DUELS
 from games.duel.challenge import DUELS, MAX_STAKE, NEED_DM, STAKE_STEPS, create_challenge
 from games.party import roulette
+from games.party.poker import handlers as poker
 from games.party.mafia.handlers import open_mafia_lobby
 from services import economy as ec
 from services import features
@@ -37,29 +39,33 @@ ICONS = {
     "roulette": "5235762367312173706",   # Русская рулетка
     "bunker": "5197253849450042423",     # Бункер
     "seabattle": "5188322825735267247",  # Морской бой
+    "poker": EMOJI["poker"][0],          # Покер
 }
 RUBY_ID = EMOJI["ruby"][0]
 FALLBACK = {
     "mafia": "🎭", "code": "🔑", "wordseek": "🔤", "assoc": "💬", "roulette": "🔫", "bunker": "🛡",
-    "seabattle": "🚢", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬",
+    "seabattle": "🚢", "poker": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬",
 }
 # Короткие подписи для кнопок (полные названия остаются в тексте и в лобби)
-LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль"}
+LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер"}
 USAGE = {
     "ttt": "/ttt [ставка]", "rps": "/rps [ставка]", "duel": "/duel [ставка]",
     "seabattle": "/seabattle [ставка] или /seabattle bot", "hangman": "/hangman [ставка]",
 }
 # Порядок кнопок. Игры, которых тут нет, добавляются в конец.
-LOBBY_ORDER = ["bunker", "roulette", "assoc", "code", "wordseek", "memory", "whomost"]
+LOBBY_ORDER = ["bunker", "roulette", "poker", "assoc", "code", "wordseek", "memory", "whomost"]
 DUEL_ORDER = ["ttt", "duel", "seabattle", "hangman", "rps"]
 ONE_LINE = 15  # подпись длиннее этого числа знаков не влезает в половину строки: кнопка занимает всю строку
 
 PICKER_SEC = 60
+LOBBY_STAKE = ("roulette", "poker")  # групповые игры со ставкой (набор открывается как лобби)
 pickers: Dict[int, Message] = {}  # меню выбора ставки: одно на игрока
+picker_tasks: Dict[int, asyncio.Task] = {}  # таймер автозакрытия меню
+awaiting: Dict[int, str] = {}  # игрок нажал «Своя сумма» и ждём от него число: {user_id: ключ игры}
 
 
 def has_stake(key: str) -> bool:
-    return key == "roulette" or key in DUELS
+    return key in LOBBY_STAKE or key in DUELS
 
 
 def lobby_games():
@@ -124,7 +130,7 @@ def games_markup() -> InlineKeyboardMarkup:
 
 
 def games_text() -> str:
-    t = f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму.\n\n"
+    t = f"{e('game')} <b>Игры</b>\n\nНажми на игру, чтобы запустить её. Если в игре есть ставка, бот спросит сумму (можно выбрать кнопкой или написать свою).\n\n"
     games = lobby_games()
     if games or features.is_on("mafia"):
         t += "<b>На несколько игроков</b> (лобби: «Войти» и «Старт»):\n"
@@ -172,6 +178,8 @@ async def launch(bot, chat_id: int, user, key: str, stake: int = 0) -> Optional[
         return await open_mafia_lobby(bot, chat_id, user)
     if key == "roulette":
         return await roulette.open_roulette(bot, chat_id, user, stake)
+    if key == "poker":
+        return await poker.open_poker(bot, chat_id, user, stake)
     if key in DUELS:
         return await create_challenge(bot, chat_id, user, key, stake)
     if key in GAMES:
@@ -187,7 +195,7 @@ async def precheck(chat_id: int, user, key: str) -> Optional[str]:
         return "Сейчас игры на паузе."
     if await is_user_banned(user.id):
         return "Ты в чёрном списке игр."
-    if key == "roulette":
+    if key in LOBBY_STAKE:
         info = games_core.active(chat_id)
         if info:
             return f"Сейчас уже идёт игра: {info['title']}. Дождись окончания."
@@ -207,16 +215,34 @@ def picker_markup(uid: int, key: str, balance: int) -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
+    rows.append([ui.btn("✏️ Своя сумма", f"gm:cu:{uid}:{key}")])
     if key == "seabattle":
         rows.append([InlineKeyboardButton(text="🤖 Играть против бота", callback_data=f"gm:bot:{uid}")])
     rows.append([ui.btn("🚫 Отмена", f"gm:sx:{uid}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def custom_markup(uid: int, key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[ui.btn("◀️ Назад", f"gm:gb:{uid}:{key}"),
+                                                  ui.btn("🚫 Отмена", f"gm:sx:{uid}")]])
+
+
+def custom_text(key: str, name: str, balance: int) -> str:
+    top = min(MAX_STAKE, balance)
+    what = "бай-ин" if key == "poker" else "ставку"
+    return (f"{e('game')} <b>{esc(title_of(key))}</b>\n"
+            f"Игрок: <b>{esc(name)}</b>\n\n"
+            f"✏️ Напиши в чат {what} числом, от 1 до <b>{top}</b> {RUBY}.\n"
+            f"У тебя: <b>{balance}</b> {RUBY}")
+
+
 def picker_text(key: str, name: str, balance: int) -> str:
+    rule = ("Выбери бай-ин: столько фишек получит каждый игрок, а рубины перейдут от проигравших "
+            "к выигравшим по итогам игры." if key == "poker"
+            else "Выбери ставку. Победитель забирает её у проигравшего.")
     t = (f"{e('game')} <b>{esc(title_of(key))}</b>\n"
          f"Игрок: <b>{esc(name)}</b>\n\n"
-         f"Выбери ставку. Победитель забирает её у проигравшего.\n"
+         f"{rule}\n"
          f"У тебя: <b>{balance}</b> {RUBY}")
     if balance < STAKE_STEPS[0]:
         t += f"\n<i>Ставки от {STAKE_STEPS[0]} {RUBY} станут доступны, когда накопишь рубины.</i>"
@@ -230,10 +256,16 @@ async def _drop(msg: Message):
         pass
 
 
-async def _close_picker(uid: int, msg: Message):
-    if pickers.get(uid) is msg:
-        pickers.pop(uid, None)
-    await _drop(msg)
+async def _close_picker(uid: int, msg: Optional[Message] = None):
+    """Закрывает меню ставки игрока: удаляет сообщение, снимает ожидание суммы и таймер."""
+    stored = pickers.pop(uid, None)
+    awaiting.pop(uid, None)
+    task = picker_tasks.pop(uid, None)
+    if task and task is not asyncio.current_task():
+        task.cancel()
+    target = msg or stored
+    if target:
+        await _drop(target)
 
 
 async def _drop_later(uid: int, msg: Message):
@@ -241,16 +273,21 @@ async def _drop_later(uid: int, msg: Message):
     await _close_picker(uid, msg)
 
 
+def _restart_timer(uid: int, msg: Message):
+    task = picker_tasks.pop(uid, None)
+    if task:
+        task.cancel()
+    picker_tasks[uid] = asyncio.create_task(_drop_later(uid, msg))
+
+
 async def _open_picker(cb: CallbackQuery, key: str):
     user = cb.from_user
-    old = pickers.pop(user.id, None)
-    if old:
-        await _drop(old)
+    await _close_picker(user.id)
     balance = (await ec.wallet(user.id))[0]
     msg = await cb.message.answer(picker_text(key, user.first_name or user.username or "Игрок", balance),
                                   reply_markup=picker_markup(user.id, key, balance))
     pickers[user.id] = msg
-    asyncio.create_task(_drop_later(user.id, msg))
+    _restart_timer(user.id, msg)
 
 
 async def _answer_error(cb: CallbackQuery, err: str):
@@ -274,7 +311,7 @@ async def games_cb(cb: CallbackQuery):
         return
 
     # Меню выбора ставки принадлежит тому, кто его открыл
-    if act in ("st", "sx", "bot"):
+    if act in ("st", "sx", "bot", "cu", "gb"):
         if user.id != int(parts[2]):
             await cb.answer("Это меню открыл другой игрок", show_alert=True)
             return
@@ -307,6 +344,32 @@ async def games_cb(cb: CallbackQuery):
             await cb.answer(err, show_alert=True)
             return
         await _open_picker(cb, key)
+        await cb.answer()
+        return
+
+    if act == "cu":
+        key = parts[3]
+        if not has_stake(key) or not is_enabled(key):
+            await cb.answer("Эта игра отключена", show_alert=True)
+            return
+        balance = (await ec.wallet(user.id))[0]
+        if balance < 1:
+            await cb.answer("У тебя пока нет рубинов для ставки", show_alert=True)
+            return
+        awaiting[user.id] = key
+        _restart_timer(user.id, cb.message)
+        await cb.message.edit_text(custom_text(key, user.first_name or user.username or "Игрок", balance),
+                                   reply_markup=custom_markup(user.id, key))
+        await cb.answer("Напиши сумму в чат")
+        return
+
+    if act == "gb":
+        key = parts[3]
+        awaiting.pop(user.id, None)
+        balance = (await ec.wallet(user.id))[0]
+        _restart_timer(user.id, cb.message)
+        await cb.message.edit_text(picker_text(key, user.first_name or user.username or "Игрок", balance),
+                                   reply_markup=picker_markup(user.id, key, balance))
         await cb.answer()
         return
 
@@ -343,6 +406,61 @@ async def games_cb(cb: CallbackQuery):
         return
 
     await cb.answer()
+
+
+input_router = Router()
+
+
+class CustomStake(Filter):
+    """Число в чате от игрока, который нажал «Своя сумма». Остальные сообщения проходят дальше как обычно."""
+
+    async def __call__(self, message: Message) -> bool:
+        user = message.from_user
+        if not user or message.chat.id != GROUP_ID or user.id not in awaiting or not message.text:
+            return False
+        return bool(re.fullmatch(r"\d[\d ]{0,9}", message.text.strip()))
+
+
+async def _temp(message: Message, text: str, sec: int = 6):
+    tmp = await message.answer(text)
+    await asyncio.sleep(sec)
+    await _drop(tmp)
+
+
+@input_router.message(CustomStake())
+async def custom_stake(message: Message):
+    user = message.from_user
+    key = awaiting.get(user.id)
+    if not key:
+        return
+    amount = int(message.text.replace(" ", ""))
+    balance = (await ec.wallet(user.id))[0]
+    await _drop(message)  # число из чата убираем, чтобы не засорять его
+    if not 1 <= amount <= MAX_STAKE:
+        asyncio.create_task(_temp(message, f"⚠️ Ставка от 1 до {MAX_STAKE} {RUBY}. Напиши другое число."))
+        return
+    if amount > balance:
+        asyncio.create_task(_temp(message, f"⚠️ У тебя только {balance} {RUBY}. Напиши сумму поменьше."))
+        return
+    if not has_stake(key) or not is_enabled(key):
+        await _close_picker(user.id)
+        asyncio.create_task(_temp(message, "⚠️ Эта игра отключена."))
+        return
+    from middlewares.ratelimit import allow_lobby
+    if not allow_lobby(user.id):
+        asyncio.create_task(_temp(message, "⏳ Слишком много действий. Попробуй немного позже."))
+        return
+    err = await launch(message.bot, message.chat.id, user, key, amount)
+    if err == NEED_DM:
+        me = await message.bot.me()
+        markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text="▶️ Открыть бота", url=f"https://t.me/{me.username}?start=game")]]) if me.username else None
+        await message.answer("Сначала открой личный чат с ботом и нажми Start, потом повтори ставку:",
+                             reply_markup=markup)
+        return
+    await _close_picker(user.id)
+    if err:
+        asyncio.create_task(_temp(message, f"⚠️ {esc(err)}"))
 
 
 def creator_of(chat_id: int):

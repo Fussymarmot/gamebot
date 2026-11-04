@@ -1,6 +1,6 @@
 # Игровой бот
 
-Игровой Telegram-бот для группового чата (aiogram 3): мафия, бункер, морской бой и другие игры,
+Игровой Telegram-бот для группового чата (aiogram 3): мафия, бункер, покер (техасский холдем), морской бой и другие игры,
 рубины, магазин, достижения, розыгрыши и модерация чата.
 
 ## Запуск
@@ -36,13 +36,13 @@ database/          слой данных (SQLite)
 
 games/             всё, что относится к играм
   core.py            лобби, реестр активных игр, запись результатов
-  menu.py            /games: кнопки запуска всех игр и выбор ставки
+  menu.py            /games: кнопки запуска всех игр, выбор ставки (кнопкой или своей суммой)
   ratings.py         /top_games
   invites.py         занятость игроков в играх на двоих
   pause.py gamemute.py content.py ai_content.py
   duel/              игры на двоих: tictactoe, rps, duel, seabattle, hangman;
                      challenge.py — общий набор со ставкой, игра стартует сразу после присоединения соперника
-  party/             групповые: mafia/, bunker/ (handlers.py + engine.py), roulette, associations
+  party/             групповые: mafia/, bunker/, poker/ (handlers.py + engine.py), roulette, associations
   casual/            лёгкие: memory, codebreaker, wordseek
 
 handlers/          команды и кнопки не из игр
@@ -73,4 +73,12 @@ utils/             fmt, emoji, ui (кнопки), premium, richui, targets, titl
    зарегистрировать через `register(GameDef(...))` из `games/core.py` и объявить `router`.
 2. Добавить роутер в `get_routers()` в `handlers/__init__.py`.
 3. Добавить команду в `services/commands.py` и запись в `RATING_GAMES` в `games/ratings.py`.
-4. Игра с лобби и ставкой: по образцу `open_roulette` в `games/party/roulette.py`; добавить её в `has_stake()` в `games/menu.py`.
+4. Игра с лобби и ставкой: по образцу `open_roulette` в `games/party/roulette.py` (или `open_poker`); добавить её ключ в `LOBBY_STAKE` в `games/menu.py`.
+   Размер ставки ограничивает `MAX_STAKE` в `games/duel/challenge.py`: он действует и для кнопок, и для своей суммы, и для команд.
+
+## Покер
+
+`/poker [бай-ин]` или кнопка в `/games`. 2–8 игроков, no-limit холдем. Карты и комбинация приходят каждому в личку (нужен Start у бота) и
+обновляются на флопе, тёрне и ривере; то же самое показывает кнопка «Мои карты» под столом (видит только нажавший).
+Без бай-ина играют на 1000 фишек. С бай-ином фишки = рубины, и по итогам игры проигравшие отдают рубины выигравшим
+(сколько есть на балансе). Блайнды удваиваются каждые 5 раздач. Настройки: константы в начале `games/party/poker/handlers.py`.

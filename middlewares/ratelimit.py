@@ -12,8 +12,8 @@ LOBBY_LIMIT, LOBBY_WINDOW = 5, 60
 REPEAT_LIMIT, REPEAT_WINDOW = 3, 5
 
 GAME_CMDS = {"ttt", "rps", "duel", "mafia", "memory", "code", "assoc", "games",
-             "top_games", "stopgame", "stopmafia", "roulette", "wordseek", "seabattle", "hangman"}
-LOBBY_CMDS = {"mafia", "memory", "code", "assoc", "roulette", "wordseek"}
+             "top_games", "stopgame", "stopmafia", "roulette", "poker", "wordseek", "seabattle", "hangman"}
+LOBBY_CMDS = {"mafia", "memory", "code", "assoc", "roulette", "poker", "wordseek"}
 
 _cmds: Dict[int, Deque[float]] = defaultdict(deque)
 _lobbies: Dict[int, Deque[float]] = defaultdict(deque)

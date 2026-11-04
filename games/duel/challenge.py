@@ -34,8 +34,8 @@ from utils.ui import kb
 router = Router()
 log = logging.getLogger(__name__)
 
-MAX_STAKE = 200
-STAKE_STEPS = (10, 25, 50, 100, 200)  # быстрые ставки в меню игр
+MAX_STAKE = 1000  # потолок любой ставки: и быстрых кнопок, и своей суммы, и команд (/ttt 500)
+STAKE_STEPS = (10, 25, 50, 100, 200, 500)  # быстрые ставки в меню игр
 WAIT_SEC = 300
 NEED_DM = "need_dm"  # create_challenge вернёт это, если создателю надо сначала нажать Start у бота
 StartFn = Callable[[Message, int, str, int, str], Awaitable[None]]

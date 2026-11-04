@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from database.core import x
 from games import pause
 from games.core import finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
+from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.fmt import esc
 from utils.ui import kb
@@ -19,7 +20,6 @@ log = logging.getLogger(__name__)
 KEY = "roulette"
 CHAMBERS = 6
 TURN_SEC = 60
-MAX_STAKE = 200
 
 
 def panel(lobby: Lobby, note: str = "") -> str:
