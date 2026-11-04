@@ -1,8 +1,7 @@
-import json
 import logging
 import random
 import re
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from database.core import q, x
 from services import ai
@@ -14,37 +13,6 @@ SYSTEM = ("Ты помощник в игре для группы друзей. �
 BAD = re.compile(r"(?i)\b(?:хуй|пизд|бляд|ебан|сука|гандон|педик|нацист|секс|наркот|убий|смерт)")
 WORD = re.compile(r"^[а-яё]{5}$")
 THEMES = ("природа", "еда", "животные", "космос", "спорт", "дом", "музыка", "транспорт", "одежда")
-
-
-def parse_json(text: Optional[str]):
-    if not text:
-        return None
-    clean = re.sub(r"```(?:json)?", "", text).strip()
-    start, end = clean.find("["), clean.rfind("]")
-    if start < 0 or end <= start:
-        return None
-    try:
-        return json.loads(clean[start:end + 1])
-    except ValueError:
-        return None
-
-
-async def who_most(n: int) -> List[Tuple[str, str]]:
-    text = await ai.ask(
-        f"Придумай {n} новых шуточных вопросов для игры «Кто скорее всего…» про участников чата. "
-        "Каждый начинается с «Кто скорее всего» и заканчивается знаком «?», до 90 символов, безобидный и "
-        "добрый. К каждому дай короткое шуточное звание победителя (2-3 слова). "
-        'Формат ответа: только JSON-массив пар, например [["Кто скорее всего проспит будильник?", "Соня компании"]].',
-        max_tokens=700, timeout=12.0, system=SYSTEM)
-    data = parse_json(text)
-    out = []
-    for item in data or []:
-        if (isinstance(item, list) and len(item) == 2 and all(isinstance(s, str) for s in item)
-                and item[0].startswith("Кто скорее всего") and item[0].endswith("?")
-                and len(item[0]) <= 110 and 2 <= len(item[1]) <= 30
-                and not BAD.search(item[0] + item[1])):
-            out.append((item[0].strip(), item[1].strip()))
-    return out[:n]
 
 
 async def assoc_start() -> Optional[str]:

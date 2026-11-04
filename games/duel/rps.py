@@ -7,7 +7,8 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.game_stats import add_game_result
-from games.invites import release, send_invite
+from games.duel.challenge import open_challenge
+from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
 
@@ -39,7 +40,7 @@ class RPS:
 
 @router.message(Command("rps"))
 async def cmd_rps(message: Message):
-    await send_invite(message, "rps", "dice", "камень-ножницы-бумагу", start_game)
+    await open_challenge(message, "rps", "Камень-ножницы-бумага", "dice", start_game)
 
 
 async def start_game(msg, p1, n1, p2, n2):

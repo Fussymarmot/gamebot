@@ -71,7 +71,10 @@ async def main():
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        # chat_member и message_reaction нужны, чтобы видеть вход людей и реакции (боту нужны права админа)
+        updates = set(dp.resolve_used_update_types()) | {
+            "message", "edited_message", "callback_query", "chat_member", "message_reaction"}
+        await dp.start_polling(bot, allowed_updates=sorted(updates))
     finally:
         await bot.session.close()
 

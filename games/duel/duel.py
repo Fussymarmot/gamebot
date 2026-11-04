@@ -7,7 +7,8 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.game_stats import add_game_result
-from games.invites import release, send_invite
+from games.duel.challenge import open_challenge
+from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
 
@@ -40,7 +41,7 @@ class Duel:
 
 @router.message(Command("duel"))
 async def cmd_duel(message: Message):
-    await send_invite(message, "duel", "swords", "дуэль", start_duel)
+    await open_challenge(message, "duel", "Дуэль на скорость", "swords", start_duel)
 
 
 async def start_duel(msg, p1, n1, p2, n2):

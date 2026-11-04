@@ -11,9 +11,9 @@ CMD_LIMIT, CMD_WINDOW = 20, 60
 LOBBY_LIMIT, LOBBY_WINDOW = 5, 60
 REPEAT_LIMIT, REPEAT_WINDOW = 3, 5
 
-GAME_CMDS = {"ttt", "rps", "duel", "mafia", "werewolf", "memory", "code", "whomost", "assoc", "games",
+GAME_CMDS = {"ttt", "rps", "duel", "mafia", "werewolf", "memory", "code", "assoc", "games",
              "top_games", "stopgame", "stopmafia", "roulette", "checkers", "wordseek", "seabattle", "hangman"}
-LOBBY_CMDS = {"mafia", "werewolf", "memory", "code", "whomost", "assoc", "roulette", "wordseek"}
+LOBBY_CMDS = {"mafia", "werewolf", "memory", "code", "assoc", "roulette", "wordseek"}
 
 _cmds: Dict[int, Deque[float]] = defaultdict(deque)
 _lobbies: Dict[int, Deque[float]] = defaultdict(deque)

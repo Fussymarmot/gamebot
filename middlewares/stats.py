@@ -1,4 +1,6 @@
-"""Учёт участников и сообщений группы (нужен для топов, розыгрышей и проверки членства)."""
+"""Журнал сообщений группы (для розыгрышей и /clear) и проверка тегов.
+
+Сами люди регистрируются в middlewares/register.py."""
 import asyncio
 import logging
 from typing import Any, Callable, Dict

@@ -12,7 +12,8 @@ from database.game_stats import add_game_result
 from database.moderation import is_user_banned
 from games import pause
 from games.core import can_dm
-from games.invites import acquire, is_busy, release, send_invite
+from games.duel.challenge import open_challenge
+from games.invites import acquire, is_busy, release
 from utils import richui
 from utils.fmt import esc
 
@@ -209,7 +210,7 @@ async def start_game(msg, p1, n1, p2, n2):
         release(p1, p2)
         me = await msg.bot.me()
         await msg.answer("❌ Не могу написать в личку: " + ", ".join(f"<b>{esc(n)}</b>" for n in bad) +
-                         f"\n<i>Откройте @{me.username}, нажмите Start и вызовите на бой снова.</i>")
+                         f"\n<i>Откройте @{me.username}, нажмите Start и создайте игру снова.</i>")
         return
     await begin(msg.bot, p1, n1, p2, n2, msg.chat.id)
 
@@ -235,7 +236,7 @@ async def cmd_seabattle(message: Message):
             return
         await begin(message.bot, me.id, me.first_name or me.username or "Игрок", 0, "Бот", message.chat.id)
         return
-    await send_invite(message, "seabattle", "game", "морской бой", start_game)
+    await open_challenge(message, KEY, "Морской бой", "game", start_game, dm="both")
 
 
 async def ready_up(bot, gid, g, uid):

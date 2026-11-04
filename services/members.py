@@ -6,7 +6,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 
 from config import ADMIN_ID, GROUP_ID
-from database.users import all_known_user_ids, count_members, get_member_flag, set_member
+from database.users import all_known_user_ids, count_members, get_member_flag, save_user, set_member
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +26,20 @@ def _status_ok(member) -> bool:
 
 def remember(user_id: int, value: bool):
     _cache[user_id] = (value, time.time() + (TTL_YES if value else TTL_NO))
+
+
+async def register(user, in_group: bool = True):
+    """Запомнить человека, замеченного в группе: профиль и признак участника.
+
+    Дёшево вызывать на каждое событие: повторные записи отсекаются кэшем."""
+    if user is None or user.is_bot:
+        return
+    await save_user(user.id, user.username or "", user.first_name or "", user.last_name or "")
+    hit = _cache.get(user.id)
+    if hit and hit[0] == in_group and hit[1] > time.time():
+        return
+    remember(user.id, in_group)
+    await set_member(user.id, in_group)
 
 
 async def is_member(bot: Bot, user_id: int) -> bool:

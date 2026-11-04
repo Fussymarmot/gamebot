@@ -164,8 +164,14 @@ async def finish(bot, gid: int) -> Optional[List[int]]:
         text = (f"{e('party')} <b>Итоги розыгрыша «{rich(g['title'])}»</b>\n\n"
                 f"{e('gold')} Приз: <b>{rich(g['prize'])}</b>\n\nПобедители:\n{body}\n\n<i>Поздравляем!</i>")
     else:
+        if g["kind"] == "top":
+            why = "за выбранный период никто не набрал очков."
+        else:
+            n = await entries_count(gid)
+            why = ("никто не нажал «Участвую»." if n == 0 else
+                   f"участников {n}, но на момент итогов никто не подошёл под условие.")
         text = (f"🎁 <b>Итоги розыгрыша «{rich(g['title'])}»</b>\n\n"
-                "<i>Победителей нет: никто не подошёл под условия.</i>")
+                f"<i>Победителей нет: {why}</i>")
     try:
         await bot.send_message(GROUP_ID, text)
         if g["message_id"]:

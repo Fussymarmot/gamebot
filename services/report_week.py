@@ -7,7 +7,7 @@ from utils.timeutils import now, ts
 
 GAME_NAMES = {"ttt": "крестики-нолики", "rps": "КНБ", "duel": "дуэль", "mafia": "мафия", "werewolf": "оборотни",
               "memory": "мемори", "code": "взломай код", "assoc": "ассоциации", "bunker": "бункер",
-              "whomost": "кто скорее всего", "roulette": "рулетка", "checkers": "шашки",
+              "roulette": "рулетка", "checkers": "шашки",
               "wordseek": "WordSeek", "seabattle": "морской бой", "hangman": "виселица"}
 ACTION_NAMES = {"warn": "предупреждений", "mute": "мутов", "unmute": "снятых мутов", "appeal": "решений по жалобам",
                 "game_ban": "банов в играх", "uncoins": "списаний монет"}

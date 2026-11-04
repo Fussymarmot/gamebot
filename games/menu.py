@@ -14,12 +14,12 @@ from utils.ui import kb
 router = Router()
 
 TWO_PLAYER = {
-    "ttt": ("Крестики-нолики", "/ttt @username", "⭕"),
-    "rps": ("Камень-ножницы-бумага", "/rps @username", "🎲"),
-    "duel": ("Дуэль на скорость", "/duel @username", "🗡"),
-    "checkers": ("Шашки", "/checkers @username", "♟"),
-    "seabattle": ("Морской бой", "/seabattle @username или /seabattle bot", "🚢"),
-    "hangman": ("Виселица", "/hangman @username", "🪢"),
+    "ttt": ("Крестики-нолики", "/ttt [ставка]", "⭕"),
+    "rps": ("Камень-ножницы-бумага", "/rps [ставка]", "🎲"),
+    "duel": ("Дуэль на скорость", "/duel [ставка]", "🗡"),
+    "checkers": ("Шашки", "/checkers [ставка]", "♟"),
+    "seabattle": ("Морской бой", "/seabattle [ставка] или /seabattle bot", "🚢"),
+    "hangman": ("Виселица", "/hangman [ставка]", "🪢"),
 }
 
 
@@ -69,7 +69,8 @@ def games_text() -> str:
     duo = two_player()
     if duo:
         t += "\n<b>На двоих:</b> " + ", ".join(code(u.split(" или ")[0]) for _, (_, u, _) in duo) + "\n"
-        t += "<i>Вместо @username можно ID или ответ командой на сообщение соперника.</i>"
+        t += ("\n<i>Игра открывает набор: любой желающий нажимает «Присоединиться», создатель жмёт «Старт». "
+              "Необязательная ставка в монетах: победитель забирает её, например /ttt 20.</i>")
     if not games and not duo and not features.is_on("mafia"):
         t += "<i>Сейчас все игры отключены.</i>"
     return t
@@ -89,7 +90,8 @@ async def games_cb(cb: CallbackQuery):
             await cb.answer("Эта игра отключена", show_alert=True)
             return
         title, usage, _ = TWO_PLAYER[parts[2]]
-        await cb.answer(f"{title}: напиши {usage} или ответь командой на сообщение соперника.", show_alert=True)
+        await cb.answer(f"{title}: напиши {usage}. Появится набор, к игре присоединится любой желающий.",
+                        show_alert=True)
         return
     if act == "top":
         from games.ratings import rating_kb, rating_text

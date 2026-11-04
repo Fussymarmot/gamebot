@@ -16,10 +16,6 @@ def load(name: str, default):
         return default
 
 
-def who_most_questions():
-    return load("who_most.json", [["Кто скорее всего забудет, куда положил телефон?", "Главный забывашка"]])
-
-
 def assoc_words():
     return load("assoc_words.json", ["космос", "море", "лето"])
 

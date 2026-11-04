@@ -38,10 +38,11 @@ games/             всё, что относится к играм
   core.py            лобби, реестр активных игр, запись результатов
   menu.py            /games и кнопки запуска
   ratings.py         /top_games
-  invites.py         приглашения для игр на двоих
+  invites.py         занятость игроков в играх на двоих
   pause.py gamemute.py content.py ai_content.py
-  duel/              игры на двоих: tictactoe, rps, duel, checkers, seabattle, hangman
-  party/             групповые: mafia/, werewolf/, bunker/ (handlers.py + engine.py), roulette, whomost, associations
+  duel/              игры на двоих: tictactoe, rps, duel, checkers, seabattle, hangman;
+                     challenge.py — общий открытый набор со ставкой (/команда [ставка])
+  party/             групповые: mafia/, werewolf/, bunker/ (handlers.py + engine.py), roulette, associations
   casual/            лёгкие: memory, codebreaker, wordseek
 
 handlers/          команды и кнопки не из игр
@@ -64,6 +65,8 @@ utils/             fmt, emoji, ui (кнопки), premium, richui, targets, titl
 
 ## Как добавить игру
 
+0. Игра на двоих: в команде вызвать `open_challenge(...)` из `games/duel/challenge.py`, а запуск партии описать функцией
+   `start_game(msg, p1, n1, p2, n2)`. Остальное (набор, ставка) сделает challenge.
 1. Создать файл в `games/duel/`, `games/party/` или `games/casual/` (или пакет с `handlers.py` и `engine.py`),
    зарегистрировать через `register(GameDef(...))` из `games/core.py` и объявить `router`.
 2. Добавить роутер в `get_routers()` в `handlers/__init__.py`.

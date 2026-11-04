@@ -1,7 +1,8 @@
 """Виселица на двоих.
 
-/hangman @username (или ответом на сообщение) — бот пишет загадывающему в личку и просит слово.
-Когда слово пришло, в группе появляется виселица, а второй игрок угадывает буквы кнопками.
+/hangman [ставка] открывает набор: создатель загадывает слово, присоединившийся угадывает.
+После «Старт» бот пишет загадывающему в личку и просит слово; когда оно пришло, в группе появляется
+виселица, а второй игрок угадывает буквы кнопками.
 """
 import asyncio
 import re
@@ -13,15 +14,12 @@ from aiogram import F, Router
 from aiogram.filters import Command, Filter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import GROUP_ID
 from database.game_stats import add_game_result
-from database.moderation import is_user_banned
-from games import pause
 from games.core import can_dm
-from games.invites import acquire, is_busy, release
+from games.duel.challenge import open_challenge
+from games.invites import release
 from utils import richui
-from utils.fmt import code, esc
-from utils.targets import parse_target
+from utils.fmt import esc
 from utils.titles import BAD
 
 router = Router()
@@ -205,64 +203,37 @@ async def watch(bot, gid: str):
 
 @router.message(Command("hangman"))
 async def cmd_hangman(message: Message):
-    me = message.from_user
-    if message.chat.id != GROUP_ID:
-        await message.answer("Виселица запускается в группе.")
-        return
-    if pause.is_paused():
-        await message.answer("⏸ Сейчас игры на паузе.")
-        return
-    if await is_user_banned(me.id):
-        await message.answer("❌ Ты в чёрном списке игр")
-        return
-    if is_busy(me.id):
-        await message.answer("⚠️ Ты уже участвуешь в игре")
-        return
-    t = await parse_target(message)
-    if not t:
-        await message.answer(f"Используй: {code('/hangman @username')} или {code('/hangman 123456789')}\n"
-                             "<i>или ответь командой на сообщение игрока, который будет угадывать</i>")
-        return
-    if t.id is None:
-        await message.answer("❌ Не знаю такого игрока. Ответь командой на его сообщение или укажи ID.")
-        return
-    if t.id == me.id:
-        await message.answer("❌ Нельзя играть с самим собой")
-        return
-    if t.id == message.bot.id:
-        await message.answer("❌ Бот не играет в виселицу")
-        return
-    if await is_user_banned(t.id):
-        await message.answer("❌ Этот пользователь в чёрном списке игр")
-        return
-    if is_busy(t.id) or not acquire(me.id, t.id, KEY):
-        await message.answer("⚠️ Этот игрок уже участвует в игре")
-        return
-    if not await can_dm(message.bot, me.id):
-        release(me.id, t.id)
-        bot_me = await message.bot.me()
-        await message.answer(f"❌ Не могу написать тебе в личку. Открой @{bot_me.username}, "
-                             "нажми Start и повтори команду.")
-        return
+    await open_challenge(message, KEY, "Виселица", "game", start_game, dm="creator",
+                         roles=("Загадывает слово (в личке)", "Отгадывает"))
 
+
+async def start_game(msg: Message, setter: int, setter_name: str, guesser: int, guesser_name: str):
+    """Вызывается из открытого набора: создатель загадывает, присоединившийся отгадывает."""
+    bot = msg.bot
+    if not await can_dm(bot, setter):
+        release(setter, guesser)
+        bot_me = await bot.me()
+        await msg.answer(f"❌ Не могу написать <b>{esc(setter_name)}</b> в личку. Откройте @{bot_me.username}, "
+                         "нажмите Start и создайте игру снова.")
+        return
     gid = secrets.token_hex(3)
-    g = Hangman(message.chat.id, me.id, me.first_name or me.username or "Игрок", t.id, t.name)
+    g = Hangman(msg.chat.id, setter, setter_name, guesser, guesser_name)
     games[gid] = g
     locks[gid] = asyncio.Lock()
-    waiting[me.id] = gid
+    waiting[setter] = gid
     try:
-        sent = await message.bot.send_message(
-            me.id, f"🪢 <b>Виселица</b>\n\nПришли слово для <b>{esc(g.gn)}</b>: одно существительное, "
-                   f"русскими буквами, от {WORD_MIN} до {WORD_MAX} букв.\n<i>Ждём {WORD_WAIT_SEC // 60} мин.</i>",
+        sent = await bot.send_message(
+            setter, f"🪢 <b>Виселица</b>\n\nПришли слово для <b>{esc(g.gn)}</b>: одно существительное, "
+                    f"русскими буквами, от {WORD_MIN} до {WORD_MAX} букв.\n<i>Ждём {WORD_WAIT_SEC // 60} мин.</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🚫 Отмена", callback_data=f"hgx:{gid}")]]))
         g.dm_mid = sent.message_id
     except Exception:
         drop(gid)
-        await message.answer("❌ Не получилось написать тебе в личку, игра отменена.")
+        await msg.answer("❌ Не получилось написать в личку, игра отменена.")
         return
-    await render(message.bot, gid, g)
-    asyncio.create_task(watch(message.bot, gid))
+    await render(bot, gid, g)
+    asyncio.create_task(watch(bot, gid))
 
 
 class WaitingForWord(Filter):

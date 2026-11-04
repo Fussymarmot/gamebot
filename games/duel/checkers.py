@@ -7,7 +7,8 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.game_stats import add_game_result
-from games.invites import release, send_invite
+from games.duel.challenge import open_challenge
+from games.invites import release
 from utils import richui
 from utils.emoji import e
 from utils.fmt import esc
@@ -219,7 +220,7 @@ async def render(bot, gid, g):
 
 @router.message(Command("checkers"))
 async def cmd_checkers(message: Message):
-    await send_invite(message, "checkers", "game", "шашки", start_game)
+    await open_challenge(message, "checkers", "Шашки", "game", start_game)
 
 
 async def start_game(msg, p1, n1, p2, n2):
