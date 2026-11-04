@@ -16,7 +16,6 @@ REWARD = {"win": 4, "draw": 1, "loss": 1}
 WIN_BONUS = {"mafia": 6, "bunker": 6}
 DAILY_CAP = 40
 COOLDOWN_SEC = 60
-HOURLY_LIMIT = 12
 
 SHOP: Dict[str, Tuple[str, int]] = {
     "t_gamer": ("🎮 Геймер", 100),
@@ -184,10 +183,7 @@ async def process(uid: int, game: Optional[str] = None, result: Optional[str] = 
     earned = rows.get("_earned", (0, 0))[0]
     gain, stmts, lines = 0, [], []
     if game and result:
-        ok = p["hour"] <= HOURLY_LIMIT
-        if p["hour"] == HOURLY_LIMIT + 1 and notify_admin:
-            await notify_admin(f"⚠️ Подозрительная активность: {await name_of(uid)} сыграл больше "
-                               f"{HOURLY_LIMIT} игр за час. Награды приостановлены.")
+        ok = True
         if last and (now() - parse_ts(last)).total_seconds() < COOLDOWN_SEC:
             ok = False
         if ok:

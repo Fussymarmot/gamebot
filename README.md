@@ -43,7 +43,7 @@ games/             всё, что относится к играм
   duel/              игры на двоих: tictactoe, rps, duel, seabattle, hangman;
                      challenge.py — общий набор со ставкой, игра стартует сразу после присоединения соперника
   party/             групповые: mafia/, bunker/, poker/ (handlers.py + engine.py), roulette, associations
-  casual/            лёгкие: memory, codebreaker, wordseek, coinflip, slot, mines (одиночные со ставкой)
+  casual/            лёгкие: memory, codebreaker, wordseek, coinflip, slot, mines, tower (одиночные со ставкой)
 
 handlers/          команды и кнопки не из игр
   user/              /start, /help
