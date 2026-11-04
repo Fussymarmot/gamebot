@@ -44,6 +44,7 @@ COMMANDS = [
     ("assoc", "Ассоциации", "/assoc: цепочка слов", "games", False, False),
     ("profile", "Профиль", "/profile: профиль, звания, достижения", "profile", False, True),
     ("balance", "Баланс рубинов", "/balance: сколько у тебя рубинов", "profile", False, False),
+    ("pay", "Перевод рубинов", "/pay N: перевести рубины (ответом на сообщение, либо /pay @username N или ID N)", "profile", False, False),
     ("topcoins", "Топ по рубинам", "/topcoins: у кого больше всех рубинов", "profile", False, False),
     ("achievements", "Достижения", "/achievements: список достижений", "profile", False, False),
     ("daily", "Задания дня", "/daily: ежедневные задания", "profile", False, False),

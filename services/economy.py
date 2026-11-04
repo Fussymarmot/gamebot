@@ -1,9 +1,10 @@
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from database import game_stats, settings as db_settings
-from database.core import batch, q, x
+from database.core import batch, connect, q, x
 from database.settings import get_setting
 from utils.fmt import plain
 from utils.timeutils import now, parse_ts, ts
@@ -91,6 +92,40 @@ async def add_coins(uid: int, amount: int):
     await ensure(uid)
     await x("UPDATE wallets SET coins = MAX(0, coins + ?), total_earned = total_earned + ? WHERE user_id=?",
             (amount, max(amount, 0), uid))
+
+
+_pay_lock = asyncio.Lock()
+
+
+async def transfer(src: int, dst: int, amount: int) -> bool:
+    """Перевод рубинов от src к dst. False, если у отправителя не хватает рубинов.
+
+    Списание условное (coins >= amount), поэтому баланс не уйдёт в минус даже при
+    одновременных переводах. total_earned не трогаем: перевод не «заработок».
+    """
+    if amount <= 0 or src == dst:
+        return False
+    async with _pay_lock:
+        await ensure(src)
+        await ensure(dst)
+        c = await connect()
+        cur = await c.execute("UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?",
+                              (amount, src, amount))
+        ok = cur.rowcount == 1
+        await cur.close()
+        if not ok:
+            await c.commit()
+            return False
+        try:
+            cur = await c.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, dst))
+            await cur.close()
+        except Exception:
+            cur = await c.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, src))
+            await cur.close()
+            await c.commit()
+            raise
+        await c.commit()
+        return True
 
 
 async def name_of(uid: int) -> str:

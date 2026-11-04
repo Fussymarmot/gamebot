@@ -11,7 +11,7 @@ from services import economy as ec
 from services.quiet import silent_state
 from utils.emoji import e
 from utils.fmt import code, esc
-from utils.targets import parse_target
+from utils.targets import from_mention, from_text, from_user, parse_target
 from utils.ui import kb
 
 router = Router()
@@ -51,6 +51,77 @@ async def topcoins_size() -> int:
         return max(5, min(20, int(await get_setting("topcoins_size", "10"))))
     except ValueError:
         return 10
+
+
+PAY_USAGE = (f"❌ Формат: ответь на сообщение командой {code('/pay 50')}\n"
+             f"или укажи получателя: {code('/pay @username 50')}, {code('/pay 123456789 50')}")
+
+
+async def pay_target(message: Message):
+    """Получатель и сумма: по реплаю (/pay 50), @username или ID (/pay @user 50)."""
+    parts = (message.text or "").split(maxsplit=1)
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    if not rest:
+        return None
+    t = await from_mention(message, rest)
+    if not t:
+        words = rest.split(maxsplit=1)
+        # одно число без @ — это сумма (иначе «/pay 10000» приняли бы за ID)
+        if len(words) == 2 or words[0].startswith("@"):
+            t = await from_text(rest)
+    if not t:
+        rp = message.reply_to_message
+        if rp and rp.from_user:
+            if rp.from_user.is_bot:
+                return "bot"
+            t = await from_user(rp.from_user, rest)
+    return t
+
+
+@router.message(Command("pay"))
+async def cmd_pay(message: Message):
+    sender = message.from_user
+    if not sender or sender.is_bot:
+        return
+    t = await pay_target(message)
+    if t == "bot":
+        await message.answer("❌ Боту рубины переводить нельзя.")
+        return
+    if t is None:
+        await message.answer(PAY_USAGE)
+        return
+    words = t.rest.split()
+    if not words:
+        await message.answer(PAY_USAGE)
+        return
+    try:
+        amount = int(words[0])
+    except ValueError:
+        await message.answer(PAY_USAGE)
+        return
+    if amount <= 0:
+        await message.answer("❌ Сумма должна быть больше нуля.")
+        return
+    if not t.id:
+        await message.answer("❌ Не знаю такого пользователя. Укажи ID или ответь на его сообщение.")
+        return
+    if t.id == sender.id:
+        await message.answer("❌ Нельзя перевести рубины самому себе.")
+        return
+    if not await q("SELECT 1 FROM users WHERE user_id=?", (t.id,), one=True):
+        await message.answer("❌ Не знаю такого пользователя. Проверь ID.")
+        return
+    await from_user(sender)
+    if not await ec.transfer(sender.id, t.id, amount):
+        balance = (await ec.wallet(sender.id))[0]
+        await message.answer(f"❌ Не хватает рубинов: у тебя {balance}, а нужно {amount}.")
+        return
+    left = (await ec.wallet(sender.id))[0]
+    to_name = await get_user_name(t.id)
+    await message.answer(
+        f"💸 <a href=\"tg://user?id={sender.id}\">{esc(sender.first_name or 'Игрок')}</a> перевёл(а) "
+        f"<b>{amount}</b> ♦️ → <a href=\"tg://user?id={t.id}\">{esc(to_name)}</a>\n"
+        f"<i>Остаток у отправителя: {left}</i>")
 
 
 @router.message(Command("topcoins"))
