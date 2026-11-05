@@ -40,6 +40,7 @@ from services import economy as ec
 from utils.emoji import RUBY, e
 from utils.fmt import esc
 from utils.logs import logger
+from utils.tasks import spawn
 
 router = Router()
 
@@ -71,6 +72,8 @@ class Game:
     boom: Optional[int] = None               # клетка, на которой подорвался игрок
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     task: Optional[asyncio.Task] = None
+    render_task: Optional[asyncio.Task] = None   # идущая правка сообщения (клики не ждут её)
+    dirty: bool = False                          # пока шла правка, состояние поменялось ещё раз
 
     @property
     def safe_total(self) -> int:
@@ -236,6 +239,25 @@ async def _edit(g: Game, text: str, markup: InlineKeyboardMarkup):
         pass
 
 
+async def _render_loop(g: Game):
+    """Правит сообщение по последнему состоянию. Быстрые клики склеиваются: пока идёт запрос к Telegram,
+    новые нажатия лишь помечают состояние «грязным», и после ответа сообщение правится ещё раз, но один раз."""
+    while True:
+        g.dirty = False
+        if g.over:
+            return
+        await _edit(g, game_text(g), game_markup(g))
+        if not g.dirty:
+            return
+
+
+def _schedule_render(g: Game):
+    if g.render_task and not g.render_task.done():
+        g.dirty = True
+        return
+    g.render_task = spawn(_render_loop(g), name="mines_render")
+
+
 class _Refund(Exception):
     pass
 
@@ -263,6 +285,12 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
     if g.task and g.task is not asyncio.current_task():
         g.task.cancel()
     g.boom = boom
+    rt = g.render_task
+    if rt and not rt.done() and rt is not asyncio.current_task():
+        try:                                   # итог должен прийти последним, а не затереться промежуточной правкой
+            await asyncio.wait_for(asyncio.shield(rt), 5)
+        except Exception:
+            pass
     try:
         balance = (await ec.wallet(g.uid))[0]
     except Exception:
@@ -451,8 +479,8 @@ async def mg_cb(cb: CallbackQuery):
             if not g.opened:
                 await cb.answer("Сначала открой хотя бы одну клетку", show_alert=True)
                 return
-            await _end(g, "cash")
             await cb.answer("Выигрыш забран!")
+            await _end(g, "cash")
             return
         if not act.isdigit() or not 0 <= int(act) < CELLS:
             await cb.answer()
@@ -462,17 +490,17 @@ async def mg_cb(cb: CallbackQuery):
             await cb.answer()
             return
         if cell in g.mines:
-            await _end(g, "boom", boom=cell)
             await cb.answer("Бум! 💥")
+            await _end(g, "boom", boom=cell)
             return
         g.opened.add(cell)
         if len(g.opened) >= g.safe_total or raw_multiplier(len(g.opened), len(g.mines)) >= MAX_MULT:
-            await _end(g, "max")
             await cb.answer("Максимум!")
+            await _end(g, "max")
             return
         _restart_idle(g)
-        await _edit(g, game_text(g), game_markup(g))
-        await cb.answer()
+    await cb.answer()                         # сразу, без ожидания правки сообщения
+    _schedule_render(g)
 
 
 @router.callback_query(F.data.startswith("mga:"))

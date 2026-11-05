@@ -4,7 +4,7 @@
   • кнопка «Орёл и решка» в /games: бот спрашивает ставку (кнопкой или своей суммой), см. games/menu.py;
   • команда /coin <ставка>, например /coin 50.
 Дальше бот показывает кнопки «Орёл» и «Решка». После выбора ставка списывается, бот подбрасывает монету
-(случайно 50/50), кидает стикер выпавшей стороны и пишет итог: угадал — ставка умножается на COEF,
+(случайно 50/50) и правкой того же сообщения пишет итог (стикера и новых сообщений нет, чтобы не упираться в флуд-лимит группы): угадал — ставка умножается на COEF,
 не угадал — ставка остаётся у бота.
 
 Ставка обязательна (минимум 1 рубин). Игра одиночная, поэтому не занимает «слот» активной игры в чате
@@ -28,6 +28,7 @@ from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import kb
 
 router = Router()
@@ -35,15 +36,9 @@ router = Router()
 KEY = "coin"
 TITLE = "Орёл и решка"
 COEF = 2          # во сколько раз умножается ставка при выигрыше (выплата = ставка * COEF)
-MESSAGE_TO_STICKER_PAUSE = 0.9  # пауза после сообщения «Подбрасываю» до стикера
-STICKER_TO_RESULT_PAUSE = 1.8  # пауза между стикером и итогом
+TOSS_PAUSE = 0.8  # пауза между «Подбрасываю…» и итогом (оба раза правится одно и то же сообщение)
 CHOICE_SEC = 60   # сколько живут кнопки выбора стороны
 
-# Стикеры выпавшей стороны. Чтобы поменять, просто замени file_id.
-STICKERS = {
-    "heads": "CAACAgIAAxkBAAEIGxZq65fAr0u_Rswl78ESeT0aItGFowACWbAAAg8wYEviz3zJMmrBZT0E",  # орёл
-    "tails": "CAACAgIAAxkBAAEIGxhq65fVNXy1myBi9rc4AtP0oe3gowACo7EAAthrYEtII7_FeMawuT0E",  # решка
-}
 SIDE = {"heads": "Орёл", "tails": "Решка"}
 SIDE_ICON = {"heads": "🦅", "tails": "🪙"}
 SHORT = {"h": "heads", "t": "tails"}
@@ -114,7 +109,7 @@ def check_stake(stake: int, balance: int) -> Optional[str]:
     return None
 
 
-async def open_coin(bot, chat_id: int, user, stake: int = 0) -> Optional[str]:
+async def open_coin(bot, chat_id: int, user, stake: int = 0, msg: Optional[Message] = None) -> Optional[str]:
     """Показывает кнопки выбора стороны. Возвращает None или текст ошибки."""
     if chat_id != GROUP_ID:
         return "Игры запускаются в группе."
@@ -133,7 +128,14 @@ async def open_coin(bot, chat_id: int, user, stake: int = 0) -> Optional[str]:
             await _drop(p["msg"])
     token = secrets.token_hex(3)
     name = _name(user)
-    msg = await bot.send_message(chat_id, choice_text(name, stake, balance), reply_markup=choice_markup(token))
+    text, markup = choice_text(name, stake, balance), choice_markup(token)
+    if msg is not None:                       # «Ещё раз»: меню рисуем на месте итога, без нового сообщения
+        try:
+            await msg.edit_text(text, reply_markup=markup)
+        except TelegramAPIError:
+            msg = None
+    if msg is None:
+        msg = await bot.send_message(chat_id, text, reply_markup=markup)
     pending[token] = {"uid": user.id, "stake": stake, "msg": msg, "name": name,
                       "task": asyncio.create_task(_expire(token))}
     by_user[user.id] = token
@@ -156,15 +158,9 @@ async def cmd_coin(message: Message):
         await message.answer(f"⚠️ {esc(err)}")
 
 
-async def _send_side(bot, chat_id: int, side: str):
-    """Стикер выпавшей стороны. Если Telegram стикер не принял, пишем словами."""
-    try:
-        return await bot.send_sticker(chat_id, STICKERS[side])
-    except TelegramAPIError:
-        return await bot.send_message(chat_id, f"{SIDE_ICON[side]} <b>{SIDE[side]}</b>")
-
-
 async def _play(cb: CallbackQuery, p: dict, pick: str):
+    """Вся партия идёт в одном сообщении (меню → «Подбрасываю…» → итог): ни стикера, ни новых сообщений,
+    поэтому флуд-лимит группы (около 20 сообщений в минуту) при спаме не срабатывает."""
     uid, stake, bot, chat_id = p["uid"], p["stake"], cb.bot, cb.message.chat.id
     async with locks[uid]:
         outcome = "heads" if secrets.randbelow(2) == 0 else "tails"
@@ -174,40 +170,61 @@ async def _play(cb: CallbackQuery, p: dict, pick: str):
             await cb.answer("Не хватает рубинов на ставку", show_alert=True)
             await _drop(p["msg"])
             return
-    await cb.answer("Монета в воздухе...")
+
+    async def _ack():                         # ставка уже списана: сбой ответа на кнопку не должен рвать игру
+        try:
+            await cb.answer("Монета в воздухе...")
+        except TelegramAPIError:
+            pass
+
+    async def _announce():
+        try:
+            await p["msg"].edit_text(
+                f"🪙 <b>{TITLE}</b>\nИгрок: <b>{esc(p['name'])}</b>\n"
+                f"Ставка: <b>{stake}</b> {RUBY} на <b>{SIDE[pick].lower()}</b>\n\n"
+                "<i>Подбрасываю монету...</i>",
+                reply_markup=None,
+            )
+        except TelegramAPIError:
+            pass
+
+    await asyncio.gather(_ack(), _announce(), asyncio.sleep(TOSS_PAUSE))
 
     try:
-        await p["msg"].edit_text(
-            f"🪙 <b>{TITLE}</b>\nИгрок: <b>{esc(p['name'])}</b>\n"
-            f"Ставка: <b>{stake}</b> {RUBY} на <b>{SIDE[pick].lower()}</b>\n\n"
-            "<i>Подбрасываю монету...</i>",
-            reply_markup=None,
-        )
-    except TelegramAPIError:
-        pass
-
-    # Сначала даём игроку увидеть сообщение, затем отдельно показываем стикер.
-    await asyncio.sleep(MESSAGE_TO_STICKER_PAUSE)
-    sticker = await _send_side(bot, chat_id, outcome)
-    # Итог отправляем только после того, как стикер успел появиться на экране.
-    await asyncio.sleep(STICKER_TO_RESULT_PAUSE)
-
-    balance = (await ec.wallet(uid))[0]
+        balance = (await ec.wallet(uid))[0]
+    except Exception:
+        logger.exception("Не удалось получить баланс игрока %s после монеты", uid)
+        balance = 0
     who = f"<b>{esc(p['name'])}</b>"
+    icon = SIDE_ICON[outcome]
     if won:
-        text = (f"{e('party')} Выпал <b>{SIDE[outcome].lower()}</b>, {who} угадал(а)!\n"
+        text = (f"{e('party')} {icon} Выпал <b>{SIDE[outcome].lower()}</b>, {who} угадал(а)!\n"
                 f"Ставка <b>{stake}</b> {RUBY} умножена на {COEF}: выигрыш <b>+{stake * (COEF - 1)}</b> {RUBY}\n"
                 f"Баланс: <b>{balance}</b> {RUBY}")
     else:
-        text = (f"{e('skull')} Выпал <b>{SIDE[outcome].lower()}</b>, {who} не угадал(а).\n"
+        text = (f"{e('skull')} {icon} Выпал <b>{SIDE[outcome].lower()}</b>, {who} не угадал(а).\n"
                 f"Ставка <b>{stake}</b> {RUBY} уходит боту\n"
                 f"Баланс: <b>{balance}</b> {RUBY}")
     markup = again_markup(uid, stake) if balance >= stake else None
     try:
-        await sticker.reply(text, reply_markup=markup)
-    except TelegramAPIError:
+        await add_game_result(uid, KEY, "win" if won else "loss")
+    except Exception:
+        logger.exception("Не удалось записать результат монеты для игрока %s", uid)
+    # Итог правкой того же сообщения; если не вышло, пробуем ещё раз и в крайнем случае шлём новым.
+    for attempt in range(3):
+        try:
+            await p["msg"].edit_text(text, reply_markup=markup)
+            return
+        except TelegramAPIError as ex:
+            if "not modified" in str(ex).lower():
+                return
+            logger.warning("Монета: итог не отправлен, попытка %s (%s: %s)", attempt + 1, type(ex).__name__, ex)
+            await asyncio.sleep(1.0 * (attempt + 1))
+    try:
         await bot.send_message(chat_id, text, reply_markup=markup)
-    await add_game_result(uid, KEY, "win" if won else "loss")
+    except Exception:
+        logger.error("Монета: итог игрока %s (%s) не удалось доставить, ставка уже проведена", uid,
+                     "win" if won else "loss")
 
 
 @router.callback_query(F.data.startswith("cf:"))
@@ -255,12 +272,8 @@ async def cf_again(cb: CallbackQuery):
     if not features.is_on(KEY):
         await cb.answer("Эта игра отключена", show_alert=True)
         return
-    err = await open_coin(cb.bot, cb.message.chat.id, cb.from_user, int(stake))
+    err = await open_coin(cb.bot, cb.message.chat.id, cb.from_user, int(stake), msg=cb.message)
     if err:
         await cb.answer(err, show_alert=True)
         return
-    try:                                      # у старого итога убираем кнопку, чтобы не плодить меню
-        await cb.message.edit_reply_markup(reply_markup=None)
-    except TelegramAPIError:
-        pass
     await cb.answer("Выбери сторону")
