@@ -22,6 +22,8 @@ from services.commands import set_commands
 from services.economy import load_shop
 from services.scheduler import scheduler, start_scheduler
 from utils import ui
+from utils.fastack import AnswerOnceMiddleware
+from utils.timing import SlowApiLog
 from utils.logs import logger
 from utils.premium import PremiumEmoji
 from utils.retry import RetryMiddleware
@@ -90,8 +92,10 @@ async def main():
     # (для getUpdates aiogram сам добавляет время длинного опроса).
     session = AiohttpSession(timeout=20)
     bot = Bot(token=BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot.session.middleware(AnswerOnceMiddleware())  # самый внешний: один ответ на одну кнопку
     bot.session.middleware(PremiumEmoji())     # внешний: конвертирует текст один раз
     bot.session.middleware(RetryMiddleware())  # внутренний: повторяет уже готовый запрос
+    bot.session.middleware(SlowApiLog())       # самый внутренний: чистое время сети
     dp = Dispatcher()
 
     middlewares.setup(dp)

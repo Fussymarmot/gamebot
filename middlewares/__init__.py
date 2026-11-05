@@ -22,6 +22,11 @@ def setup(dp: Dispatcher):
     dp.message.outer_middleware(AutoModMiddleware())
     dp.message.outer_middleware(StatsMiddleware())
     dp.message.outer_middleware(QuietTimeMiddleware())
+    from utils.fastack import AutoAckMiddleware
+    # Самым внешним: гасит «часики» на кнопке, даже если дальше обработчик медленный.
+    dp.callback_query.outer_middleware(AutoAckMiddleware())
+    from utils.timing import SlowCallbackLog
+    dp.callback_query.outer_middleware(SlowCallbackLog())
     dp.callback_query.outer_middleware(CallbackGuardMiddleware())
     dp.callback_query.outer_middleware(MaintenanceMiddleware())
     dp.callback_query.outer_middleware(GameCallbackCooldownMiddleware())
