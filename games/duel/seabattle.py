@@ -17,6 +17,7 @@ from games.invites import acquire, is_busy, release
 from utils import richui
 from utils.fmt import esc
 from utils.logs import logger
+from utils.tasks import spawn
 
 router = Router()
 KEY = "seabattle"
@@ -200,7 +201,7 @@ async def begin(bot, p1, n1, p2, n2, group_chat):
     await group_status(bot, g, f"⚓ <b>Морской бой</b>\n{who}\n<i>Игроки расставляют корабли в личке с ботом.</i>")
     if not p2:
         await ready_up(bot, gid, g, 0)
-    asyncio.create_task(watch(bot, gid))
+    spawn(watch(bot, gid))
     return g
 
 
@@ -390,7 +391,7 @@ async def shot_cb(cb: CallbackQuery):
         if g.turn != uid:
             await group_status(cb.bot, g, f"⚓ <b>Морской бой</b>: бой идёт!\nХодит <b>{esc(g.name(g.turn))}</b>")
     if g.turn == 0:
-        asyncio.create_task(bot_turns(cb.bot, gid, g))
+        spawn(bot_turns(cb.bot, gid, g))
 
 
 async def watch(bot, gid):
@@ -424,4 +425,4 @@ async def watch(bot, gid):
                     await push(bot, g, gid, u)
                 await group_status(bot, g, f"⚓ <b>Морской бой</b>: бой идёт!\nХодит <b>{esc(g.name(g.turn))}</b>")
             if g.turn == 0:
-                asyncio.create_task(bot_turns(bot, gid, g))
+                spawn(bot_turns(bot, gid, g))

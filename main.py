@@ -5,6 +5,7 @@ import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 import middlewares
@@ -16,13 +17,15 @@ from games import core as games_core
 from games import gamemute
 from handlers import get_routers
 from handlers.economy import economy
-from services import economy as svc_economy, features, maintenance, tags
+from services import ai as svc_ai, economy as svc_economy, features, maintenance, tags
 from services.commands import set_commands
 from services.economy import load_shop
 from services.scheduler import scheduler, start_scheduler
 from utils import ui
 from utils.logs import logger
 from utils.premium import PremiumEmoji
+from utils.retry import RetryMiddleware
+from utils.tasks import cancel_all
 
 
 def setup_logging():
@@ -77,12 +80,18 @@ async def on_startup(bot: Bot):
 async def on_shutdown(bot: Bot):
     if scheduler.running:
         scheduler.shutdown(wait=False)
+    await cancel_all()
+    await svc_ai.close()
     await close_db()
 
 
 async def main():
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    bot.session.middleware(PremiumEmoji())
+    # Таймаут запроса 20 с вместо 60 по умолчанию: если Telegram или сеть зависли, игра ждёт не минуту, а 20 секунд
+    # (для getUpdates aiogram сам добавляет время длинного опроса).
+    session = AiohttpSession(timeout=20)
+    bot = Bot(token=BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot.session.middleware(PremiumEmoji())     # внешний: конвертирует текст один раз
+    bot.session.middleware(RetryMiddleware())  # внутренний: повторяет уже готовый запрос
     dp = Dispatcher()
 
     middlewares.setup(dp)

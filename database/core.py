@@ -28,20 +28,66 @@ from utils.logs import logger
 DB_PATH = os.path.join(BASE_DIR, "bot.db")
 
 BUSY_TIMEOUT_MS = 10000
+READ_POOL_SIZE = 3            # WAL позволяет читать параллельно: один тяжёлый SELECT не стопорит остальные
+LOCK_WAIT_WARN = 5.0          # столько секунд ждём писательскую блокировку, потом пишем предупреждение
+LOCK_WAIT_MAX = 30.0          # и столько — потом сдаёмся с ошибкой вместо вечного зависания
 
 _conn: Optional[aiosqlite.Connection] = None      # запись
-_rconn: Optional[aiosqlite.Connection] = None     # чтение
+_rpool: list = []                                 # чтение (пул соединений)
+_rnext = 0
 _wlock = asyncio.Lock()                           # единственный писатель
 _open_lock = asyncio.Lock()                       # защита от двойного открытия соединений
+_holder: Optional[str] = None                     # кто сейчас держит блокировку (для диагностики)
+
+
+class DatabaseBusy(RuntimeError):
+    """Писательская блокировка не освободилась за LOCK_WAIT_MAX секунд."""
+
+
+@asynccontextmanager
+async def _writer():
+    """Захват писательской блокировки с таймаутом и диагностикой.
+
+    Раньше при зависшей транзакции все записи (ставки, выплаты, результаты игр) молча вставали
+    в очередь навсегда. Теперь через LOCK_WAIT_WARN секунд в логе видно, кто держит блокировку,
+    а через LOCK_WAIT_MAX ожидание обрывается ошибкой, и бот продолжает отвечать.
+    """
+    global _holder
+    if not _wlock.locked():
+        await _wlock.acquire()
+    else:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        try:
+            await asyncio.wait_for(_wlock.acquire(), LOCK_WAIT_WARN)
+        except asyncio.TimeoutError:
+            logger.warning("Запись в БД ждёт блокировку больше %.1f с; держит: %s", LOCK_WAIT_WARN, _holder)
+            try:
+                await asyncio.wait_for(_wlock.acquire(), max(0.1, LOCK_WAIT_MAX - (loop.time() - started)))
+            except asyncio.TimeoutError:
+                logger.error("Запись в БД не дождалась блокировки за %.1f с; держит: %s", LOCK_WAIT_MAX, _holder)
+                raise DatabaseBusy("база данных занята")
+    task = asyncio.current_task()
+    _holder = task.get_name() if task else "?"
+    try:
+        yield
+    finally:
+        _holder = None
+        _wlock.release()
 
 
 async def _open(writer: bool) -> aiosqlite.Connection:
     # isolation_level=None: автокоммит, транзакциями управляем явно сами
     c = await aiosqlite.connect(DB_PATH, isolation_level=None)
     await c.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    await c.execute("PRAGMA temp_store=MEMORY")
+    await c.execute("PRAGMA cache_size=-16384")          # 16 МБ страниц на соединение
     if writer:
         await c.execute("PRAGMA journal_mode=WAL")
         await c.execute("PRAGMA synchronous=NORMAL")
+    else:
+        await c.execute("PRAGMA query_only=ON")
+        await c.execute("PRAGMA mmap_size=134217728")     # 128 МБ: чтение без лишних копирований
     return c
 
 
@@ -56,34 +102,35 @@ async def connect() -> aiosqlite.Connection:
 
 
 async def connect_read() -> aiosqlite.Connection:
-    """Отдельное соединение для чтения (WAL: читатель видит только зафиксированные данные)."""
-    global _rconn
-    if _rconn is None:
+    """Соединение для чтения из пула (WAL: читатель видит только зафиксированные данные)."""
+    global _rnext
+    if len(_rpool) < READ_POOL_SIZE:
         await connect()  # режим WAL включает писатель
         async with _open_lock:
-            if _rconn is None:
-                _rconn = await _open(False)
-    return _rconn
+            while len(_rpool) < READ_POOL_SIZE:
+                _rpool.append(await _open(False))
+    _rnext = (_rnext + 1) % len(_rpool)
+    return _rpool[_rnext]
 
 
 async def disconnect():
-    global _conn, _rconn
+    global _conn
     async with _wlock:  # не закрываем соединение посреди чужой транзакции
         async with _open_lock:
-            for c in (_rconn, _conn):
+            for c in (*_rpool, _conn):
                 if c is not None:
                     try:
                         await c.close()
                     except Exception:
                         logger.debug("Не удалось закрыть соединение с базой", exc_info=True)
             _conn = None
-            _rconn = None
+            _rpool.clear()
 
 
 @asynccontextmanager
 async def exclusive():
     """Монопольный доступ к записи без транзакции (для VACUUM, checkpoint и т. п.)."""
-    async with _wlock:
+    async with _writer():
         yield await connect()
 
 
@@ -177,7 +224,7 @@ async def tx():
     if outer is not None:  # вложенный вызов присоединяется к внешней транзакции
         yield outer
         return
-    async with _wlock:
+    async with _writer():
         c = await connect()
         t = Tx(c)
         token = _current.set(t)
@@ -217,7 +264,7 @@ async def x(sql: str, params=()) -> int:
     if t is not None:
         await t.execute(sql, params)
         return t.lastrowid
-    async with _wlock:
+    async with _writer():
         c = await connect()
         cur = await c.execute(sql, params)  # автокоммит: один запрос атомарен сам по себе
         last = cur.lastrowid

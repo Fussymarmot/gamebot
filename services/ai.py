@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 import aiohttp
@@ -14,6 +15,26 @@ SYSTEM = ("Ты рассказчик в игре «Бункер». Игроки 
           "Отвечай одним коротким абзацем из 1-3 предложений.")
 
 
+MAX_TIMEOUT = 4.0          # ИИ нужен для «украшений» (подсказки, слова); игра не должна ждать его дольше
+_session: Optional[aiohttp.ClientSession] = None
+_slots = asyncio.Semaphore(3)   # не больше трёх запросов одновременно, остальные не копятся в очереди
+
+
+def _get_session() -> aiohttp.ClientSession:
+    """Общая HTTP-сессия: раньше на каждый запрос создавалась новая (новое TLS-соединение каждый раз)."""
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=6, ttl_dns_cache=300))
+    return _session
+
+
+async def close():
+    global _session
+    if _session is not None and not _session.closed:
+        await _session.close()
+    _session = None
+
+
 async def enabled() -> bool:
     return bool(AI_KEY) and (await get_setting("ai_enabled", "0")) == "1"
 
@@ -27,6 +48,8 @@ async def limit() -> int:
 
 
 async def ask(prompt: str, max_tokens: int = 600, timeout: float = 8.0, system: Optional[str] = None) -> Optional[str]:
+    if _slots.locked():       # все слоты заняты: лучше обойтись без ИИ, чем заставлять игроков ждать
+        return None
     if not await enabled():
         return None
     used = await used_today()
@@ -37,8 +60,9 @@ async def ask(prompt: str, max_tokens: int = 600, timeout: float = 8.0, system: 
             "messages": [{"role": "user", "content": prompt}]}
     headers = {"x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-            async with session.post(URL, json=body, headers=headers) as resp:
+        async with _slots:
+            tm = aiohttp.ClientTimeout(total=min(timeout, MAX_TIMEOUT), connect=2.0)
+            async with _get_session().post(URL, json=body, headers=headers, timeout=tm) as resp:
                 if resp.status != 200:
                     return None
                 data = await resp.json()

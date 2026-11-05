@@ -77,23 +77,36 @@ def daily_cap() -> int:
     return reward(DAILY_CAP)
 
 
+_ENSURE = "INSERT OR IGNORE INTO wallets (user_id, coins, total_earned) VALUES (?,0,0)"
+_SPEND = "UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?"
+
+
 async def ensure(uid: int):
     await x("INSERT OR IGNORE INTO wallets (user_id, coins, total_earned) VALUES (?,0,0)", (uid,))
 
 
+_WALLET_SQL = "SELECT coins, total_earned, title, last_reward FROM wallets WHERE user_id=?"
+
+
 async def wallet(uid: int):
-    await ensure(uid)
-    return await q("SELECT coins, total_earned, title, last_reward FROM wallets WHERE user_id=?", (uid,), one=True)
+    """Кошелёк игрока. Сначала обычное чтение: писательская блокировка нужна, только если кошелька ещё нет.
+
+    Раньше каждый просмотр баланса (меню, проверки ставок) занимал единственного писателя ради INSERT OR IGNORE
+    и стоял в одной очереди с выплатами и результатами игр."""
+    row = await q(_WALLET_SQL, (uid,), one=True)
+    if row is None:
+        await ensure(uid)
+        row = await q(_WALLET_SQL, (uid,), one=True)
+    return row
 
 
 async def add_coins(uid: int, amount: int):
-    await ensure(uid)
-    await x("UPDATE wallets SET coins = MAX(0, coins + ?), total_earned = total_earned + ? WHERE user_id=?",
-            (amount, max(amount, 0), uid))
+    async with tx() as t:
+        await t.execute(_ENSURE, (uid,))
+        await t.execute("UPDATE wallets SET coins = MAX(0, coins + ?), total_earned = total_earned + ? WHERE user_id=?",
+                        (amount, max(amount, 0), uid))
 
 
-_ENSURE = "INSERT OR IGNORE INTO wallets (user_id, coins, total_earned) VALUES (?,0,0)"
-_SPEND = "UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?"
 
 
 async def transfer(src: int, dst: int, amount: int) -> bool:
@@ -126,8 +139,9 @@ async def debit(uid: int, amount: int) -> bool:
 async def credit(uid: int, amount: int):
     """Выплата или возврат ставки. total_earned не трогаем: это не заработок за игры."""
     if amount > 0:
-        await ensure(uid)
-        await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, uid))
+        async with tx() as t:       # одна блокировка и один коммит вместо двух
+            await t.execute(_ENSURE, (uid,))
+            await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, uid))
 
 
 async def credit_once(operation_id: str, uid: int, amount: int) -> bool:

@@ -229,7 +229,11 @@ async def push_dm(lobby: Lobby, p: Player) -> bool:
 
 
 async def refresh_dms(lobby: Lobby):
-    await asyncio.gather(*(push_dm(lobby, p) for p in lobby.data["game"].players))
+    results = await asyncio.gather(*(push_dm(lobby, p) for p in lobby.data["game"].players),
+                                   return_exceptions=True)
+    for r in results:
+        if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+            logger.warning("Не удалось обновить личное сообщение блэкджека", exc_info=r)
 
 
 # ---------- ход игры ----------

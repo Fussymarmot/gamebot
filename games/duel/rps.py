@@ -12,6 +12,7 @@ from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
 from utils.logs import logger
+from utils.tasks import spawn
 
 router = Router()
 games = {}
@@ -50,7 +51,7 @@ async def start_game(msg, p1, n1, p2, n2):
     games[gid] = g
     locks[gid] = asyncio.Lock()
     g.msg = await msg.answer(g.text(), reply_markup=g.kb(gid))
-    asyncio.create_task(_watch(gid))
+    spawn(_watch(gid))
 
 
 register_duel("rps", "Камень-ножницы-бумага", "dice", start_game)

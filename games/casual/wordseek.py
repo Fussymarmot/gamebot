@@ -30,8 +30,17 @@ def norm(w: str) -> str:
     return (w or "").strip().lower().replace("ё", "е")
 
 
+_words_cache: dict = {"src": None, "set": frozenset(), "sorted": []}
+
+
 def local_words():
-    return {norm(w) for w in wordseek_words() if len(norm(w)) == 5}
+    """Множество 5-буквенных слов. Пересобирается только когда сменился список из data/wordseek_words.json
+    (раньше строилось заново на каждую догадку каждого игрока)."""
+    src = wordseek_words()
+    if _words_cache["src"] is not src:
+        words = {norm(w) for w in src if len(norm(w)) == 5}
+        _words_cache.update(src=src, set=frozenset(words), sorted=sorted(words))
+    return _words_cache["set"]
 
 
 def evaluate(secret: str, guess: str) -> str:
@@ -55,7 +64,8 @@ async def is_word(w: str) -> bool:
 
 
 async def pick_secret(daily: bool) -> str:
-    words = sorted(local_words())
+    local_words()
+    words = _words_cache["sorted"]
     if daily:
         return random.Random(now().strftime("%Y-%m-%d")).choice(words)
     if await ai.enabled() and random.random() < 0.5:

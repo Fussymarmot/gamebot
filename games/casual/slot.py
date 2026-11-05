@@ -30,6 +30,7 @@ from utils.emoji import RUBY, e
 from utils.fmt import esc
 from utils.logs import logger
 from utils.ui import kb
+from utils.tasks import spawn
 
 router = Router()
 
@@ -123,7 +124,7 @@ async def spin(bot, chat_id: int, user, stake: int) -> Optional[str]:
             await asyncio.shield(ec.credit(user.id, stake))
         spinning.discard(user.id)
         raise
-    asyncio.create_task(_finish(bot, chat_id, user, stake, dice, result, coef, reels))
+    spawn(_finish(bot, chat_id, user, stake, dice, result, coef, reels))
     return None
 
 

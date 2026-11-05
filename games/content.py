@@ -6,12 +6,21 @@ from config import BASE_DIR
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
+# {имя файла: (mtime, данные)}. Файл перечитывается только если его изменили на диске.
+_cache: dict = {}
+
 
 def load(name: str, default):
+    path = os.path.join(DATA_DIR, name)
     try:
-        with open(os.path.join(DATA_DIR, name), encoding="utf-8") as f:
+        mtime = os.stat(path).st_mtime
+        hit = _cache.get(name)
+        if hit and hit[0] == mtime:
+            return hit[1] or default
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
-            return data or default
+        _cache[name] = (mtime, data)
+        return data or default
     except Exception:
         return default
 

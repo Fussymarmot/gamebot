@@ -30,6 +30,7 @@ from utils.emoji import e
 from utils.fmt import esc
 from utils.logs import logger
 from utils.ui import kb
+from utils.tasks import spawn
 
 router = Router()
 
@@ -130,7 +131,7 @@ async def create_challenge(bot, chat_id: int, user, key: str, stake: int = 0) ->
         release(user.id)
         raise
     challenges[cid] = c
-    asyncio.create_task(_expire(cid))
+    spawn(_expire(cid))
     return None
 
 

@@ -12,6 +12,7 @@ from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
 from utils.logs import logger
+from utils.tasks import spawn
 
 router = Router()
 games = {}
@@ -51,6 +52,12 @@ async def start_duel(msg, p1, n1, p2, n2):
     games[gid] = d
     locks[gid] = asyncio.Lock()
     d.msg = await msg.answer(d.text(), reply_markup=d.kb(gid))
+    # Ожидание сигнала и таймаут живут в отдельной задаче: обработчик кнопки «Присоединиться»
+    # не должен висеть целую минуту.
+    spawn(_duel_timeline(gid, d), name=f"duel:{gid}")
+
+
+async def _duel_timeline(gid, d):
     await asyncio.sleep(random.uniform(2, 6))
     if gid in games and d.state == "waiting":
         d.state = "ready"

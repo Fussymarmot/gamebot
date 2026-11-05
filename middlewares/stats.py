@@ -12,6 +12,7 @@ from database.messages import save_message
 from database.users import save_user, set_member
 from services import members, tags
 from utils.logs import logger
+from utils.tasks import spawn
 
 
 
@@ -29,7 +30,7 @@ class StatsMiddleware(BaseMiddleware):
                     members.remember(user.id, True)
                     await set_member(user.id, True)
                 if user.id in tags.perm_cache:
-                    asyncio.create_task(
+                    spawn(
                         tags.enforce(event.bot, user.id, getattr(event, "sender_tag", None)))
             except Exception:
                 logger.warning("Не удалось сохранить статистику сообщения игрока %s", user.id, exc_info=True)

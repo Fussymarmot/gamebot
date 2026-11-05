@@ -13,6 +13,7 @@ from utils import richui
 from utils.emoji import e
 from utils.fmt import esc
 from utils.logs import logger
+from utils.tasks import spawn
 
 router = Router()
 games = {}
@@ -232,7 +233,7 @@ async def start_game(msg, p1, n1, p2, n2):
     g.chat_id = msg.chat.id
     _bot_ref[0] = msg.bot
     await render(msg.bot, gid, g)
-    asyncio.create_task(_watch(gid))
+    spawn(_watch(gid))
 
 
 def _drop(gid):

@@ -313,7 +313,10 @@ async def refresh_dms(lobby: Lobby):
                 continue
             d["dm_done"].add(s.uid)
         targets.append(s)
-    await asyncio.gather(*(push_dm(lobby, s) for s in targets))
+    results = await asyncio.gather(*(push_dm(lobby, s) for s in targets), return_exceptions=True)
+    for r in results:
+        if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+            logger.warning("Не удалось обновить личное сообщение покера", exc_info=r)
 
 
 # ---------- ход игры ----------

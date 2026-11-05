@@ -18,6 +18,7 @@ from utils.fmt import esc
 from utils.logs import logger
 from utils.timeutils import MSK
 from utils.ui import kb
+from utils.tasks import spawn
 
 router = Router()
 
@@ -187,7 +188,7 @@ async def open_lobby(bot, chat_id: int, user, game: GameDef) -> Optional[str]:
     except Exception:
         finish(lobby)      # не оставляем чат занятым, если сообщение лобби не отправилось
         raise
-    asyncio.create_task(_lobby_expire(lobby))
+    spawn(_lobby_expire(lobby))
     return None
 
 
@@ -356,12 +357,21 @@ class InGame(Filter):
 
 
 async def record_results(game_key: str, players, winners):
+    """Записывает результаты партии всем игрокам.
+
+    Игроки обрабатываются параллельно: награды и объявления о достижениях у каждого свои, а чат остаётся
+    «занят» до конца записи. Раньше 10-20 игроков обрабатывались по очереди, и новую игру нельзя было начать
+    несколько секунд после финала.
+    """
     players = list(players)
     if len(players) < 2:
         return
     win = set(winners)
-    for uid in players:
+
+    async def one(uid: int):
         try:
             await add_game_result(uid, game_key, "win" if uid in win else "loss")
         except Exception:
             logger.exception("Не удалось записать результат игры %s для игрока %s", game_key, uid)
+
+    await asyncio.gather(*(one(uid) for uid in players))

@@ -2,7 +2,7 @@
 import os
 import shutil
 
-from database import settings, users
+from database import moderation, settings, users
 from database.core import DB_PATH, disconnect, exclusive
 from database.messages import flush_messages
 from database.schema import init_db
@@ -11,6 +11,12 @@ from database.schema import init_db
 def invalidate_caches():
     settings.clear_cache()
     users.clear_cache()
+    moderation.clear_cache()
+    try:
+        from services import mods
+        mods.clear_cache()
+    except Exception:       # services может быть ещё не импортирован
+        pass
 
 
 async def close():

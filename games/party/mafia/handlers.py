@@ -23,6 +23,7 @@ from utils.fmt import esc
 from utils.logs import logger
 from utils.timeutils import ts
 from utils.ui import kb, name_rows
+from utils.tasks import spawn
 
 router = Router()
 
@@ -127,7 +128,7 @@ async def open_mafia_lobby(bot, chat_id: int, user) -> Optional[str]:
         logger.exception("Не удалось отправить сообщение лобби мафии в чат %s", chat_id)
         _drop(chat_id)     # не оставляем чат занятым, если сообщение лобби не отправилось
         raise
-    asyncio.create_task(_lobby_expire(s))
+    spawn(_lobby_expire(s))
     return None
 
 

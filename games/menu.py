@@ -31,6 +31,7 @@ from services import features
 from utils import ui
 from utils.emoji import EMOJI, RUBY, e
 from utils.fmt import code, esc
+from utils.tasks import spawn
 
 router = Router()
 
@@ -556,18 +557,18 @@ async def custom_stake(message: Message):
     await _drop(message)  # число из чата убираем, чтобы не засорять его
     limit = balance if key == "poker" else min(MAX_STAKE, balance)
     if not 1 <= amount <= limit:
-        asyncio.create_task(_temp(message, f"⚠️ Ставка от 1 до {limit} {RUBY}. Напиши другое число."))
+        spawn(_temp(message, f"⚠️ Ставка от 1 до {limit} {RUBY}. Напиши другое число."))
         return
     if amount > balance:
-        asyncio.create_task(_temp(message, f"⚠️ У тебя только {balance} {RUBY}. Напиши сумму поменьше."))
+        spawn(_temp(message, f"⚠️ У тебя только {balance} {RUBY}. Напиши сумму поменьше."))
         return
     if not has_stake(key) or not is_enabled(key):
         await _close_picker(user.id)
-        asyncio.create_task(_temp(message, "⚠️ Эта игра отключена."))
+        spawn(_temp(message, "⚠️ Эта игра отключена."))
         return
     from middlewares.ratelimit import allow_lobby
     if not allow_lobby(user.id):
-        asyncio.create_task(_temp(message, "⏳ Слишком много действий. Попробуй немного позже."))
+        spawn(_temp(message, "⏳ Слишком много действий. Попробуй немного позже."))
         return
     err = await launch(message.bot, message.chat.id, user, key, amount)
     if err == NEED_DM:
@@ -579,7 +580,7 @@ async def custom_stake(message: Message):
         return
     await _close_picker(user.id)
     if err:
-        asyncio.create_task(_temp(message, f"⚠️ {esc(err)}"))
+        spawn(_temp(message, f"⚠️ {esc(err)}"))
 
 
 def creator_of(chat_id: int):

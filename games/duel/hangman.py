@@ -22,6 +22,7 @@ from utils import richui
 from utils.fmt import esc
 from utils.logs import logger
 from utils.titles import BAD
+from utils.tasks import spawn
 
 router = Router()
 KEY = "hangman"
@@ -240,7 +241,7 @@ async def start_game(msg: Message, setter: int, setter_name: str, guesser: int, 
         await msg.answer("❌ Не получилось написать в личку, игра отменена.")
         return
     await render(bot, gid, g)
-    asyncio.create_task(watch(bot, gid))
+    spawn(watch(bot, gid))
 
 
 register_duel(KEY, "Виселица", "game", start_game, dm="creator",

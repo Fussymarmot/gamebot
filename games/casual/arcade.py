@@ -35,6 +35,7 @@ from utils.fmt import esc
 from utils.logs import logger
 from utils.premium import raw
 from utils.ui import kb
+from utils.tasks import spawn
 
 router = Router()
 
@@ -245,7 +246,7 @@ async def play(bot, chat_id: int, user, key: str, stake: int) -> Optional[str]:
             await asyncio.shield(ec.credit(user.id, stake))
         busy.discard(user.id)
         raise
-    asyncio.create_task(_finish(bot, chat_id, user, cfg, stake, dice, throw, won))
+    spawn(_finish(bot, chat_id, user, cfg, stake, dice, throw, won))
     return None
 
 
@@ -432,7 +433,7 @@ async def spin_slot(bot, chat_id: int, user, stake: int) -> Optional[str]:
             await asyncio.shield(ec.credit(user.id, stake))
         busy.discard(user.id)
         raise
-    asyncio.create_task(_slot_finish(bot, chat_id, user, stake, dice, result, coef, reels))
+    spawn(_slot_finish(bot, chat_id, user, stake, dice, result, coef, reels))
     return None
 
 

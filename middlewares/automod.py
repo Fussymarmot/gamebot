@@ -9,6 +9,7 @@ from database.settings import get_setting
 from database.users import is_newbie
 from services import mods, modtools
 from utils.logs import logger
+from utils.tasks import spawn
 
 LINK = re.compile(r"https?://|t\.me/|telegram\.me/|www\.|\b\w+\.(?:ru|com|net|org|me|io|xyz|ly)\b", re.I)
 
@@ -35,7 +36,7 @@ async def notice(message: Message, text: str, markup=None):
                 await msg.delete()
             except Exception:
                 logger.debug("Не удалось удалить уведомление автомодерации", exc_info=True)
-        asyncio.create_task(later())
+        spawn(later())
 
 
 class AutoModMiddleware(BaseMiddleware):
@@ -44,18 +45,15 @@ class AutoModMiddleware(BaseMiddleware):
         user = event.from_user
         if event.chat.id != GROUP_ID or not user or user.is_bot or user.id == ADMIN_ID:
             return await handler(event, data)
-        if (await get_setting("automod_on", "1")) != "1" or await mods.is_mod(user.id):
-            return await handler(event, data)
+        if (await get_setting("automod_on", "1")) != "1" or not has_link(event):
+            return await handler(event, data)      # частый случай: сообщение без ссылки, БД не трогаем
         hours = int(await get_setting("automod_hours", "48"))
-        newbie = await is_newbie(user.id, hours)
+        if not await is_newbie(user.id, hours) or await mods.is_mod(user.id):
+            return await handler(event, data)
         name = user.first_name or user.username or "Участник"
-
-        if newbie and has_link(event):
-            try:
-                await event.delete()
-            except Exception:
-                logger.debug("Не удалось удалить сообщение новичка со ссылкой", exc_info=True)
-            text, muted = await modtools.warn(event.bot, 0, user.id, name, "автомодерация: ссылка от новичка")
-            await notice(event, text, modtools.appeal_kb(user.id) if muted else None)
-            return
-        return await handler(event, data)
+        try:
+            await event.delete()
+        except Exception:
+            logger.debug("Не удалось удалить сообщение новичка со ссылкой", exc_info=True)
+        text, muted = await modtools.warn(event.bot, 0, user.id, name, "автомодерация: ссылка от новичка")
+        await notice(event, text, modtools.appeal_kb(user.id) if muted else None)
