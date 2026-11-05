@@ -6,6 +6,10 @@ from utils.emoji import CHAR_IDS, EMOJI
 
 ICONS_ENABLED = False
 
+# Кнопки, у которых смайлик в начале подписи остаётся обычным (не заменяется на премиум-иконку).
+# Кубик: у премиум-🎲 другой вид, а нужен стандартный.
+PLAIN_ICON_DATA = {"gm:play:dice"}
+
 
 def _norm(ch: str) -> str:
     return ch.replace("\ufe0f", "").replace("\ufe0e", "")
@@ -22,7 +26,7 @@ def set_icons(enabled: bool):
 def btn(text: str, data: Optional[str] = None, url: Optional[str] = None,
         icon: bool = True) -> InlineKeyboardButton:
     params = {}
-    if icon and ICONS_ENABLED and text:
+    if icon and ICONS_ENABLED and text and data not in PLAIN_ICON_DATA:
         first = _norm(text[0])
         rest = text[1:].lstrip("\ufe0f\ufe0e").strip()
         if first in _CHAR2ID and rest:
@@ -33,7 +37,7 @@ def btn(text: str, data: Optional[str] = None, url: Optional[str] = None,
 
 def iconize(b: InlineKeyboardButton) -> InlineKeyboardButton:
     text = b.text or ""
-    if getattr(b, "icon_custom_emoji_id", None) or not text:
+    if getattr(b, "icon_custom_emoji_id", None) or not text or b.callback_data in PLAIN_ICON_DATA:
         return b
     first = _norm(text[0])
     rest = text[1:].lstrip("\ufe0f\ufe0e").strip()

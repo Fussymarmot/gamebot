@@ -9,7 +9,8 @@ GAME_NAMES = {"ttt": "крестики-нолики", "rps": "КНБ", "duel": "
               "memory": "мемори", "code": "взломай код", "assoc": "ассоциации", "bunker": "бункер",
               "roulette": "рулетка", "poker": "покер", "blackjack": "блэкджек",
               "wordseek": "WordSeek", "seabattle": "морской бой", "hangman": "виселица",
-              "coin": "орёл и решка", "slot": "слот-машина", "mines": "сапёр", "tower": "башня"}
+              "coin": "орёл и решка", "slot": "слот-машина", "mines": "сапёр", "tower": "башня",
+              "bowling": "боулинг", "darts": "дартс", "dice": "кубик", "basket": "баскетбол"}
 ACTION_NAMES = {"warn": "предупреждений", "mute": "мутов", "unmute": "снятых мутов", "appeal": "решений по жалобам",
                 "game_ban": "банов в играх", "uncoins": "списаний рубинов"}
 

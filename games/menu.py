@@ -21,7 +21,7 @@ from games import invites, pause
 from games.core import GAMES, open_lobby
 from games.duel import duel, hangman, rps, seabattle, tictactoe  # noqa: F401: регистрируют игры в DUELS
 from games.duel.challenge import DUELS, MAX_STAKE, NEED_DM, STAKE_STEPS, create_challenge
-from games.casual import coinflip, mines, slot, tower
+from games.casual import arcade, coinflip, mines, tower
 from games.party import roulette
 from games.party.poker import handlers as poker
 from games.party.blackjack import handlers as blackjack
@@ -51,6 +51,7 @@ RUBY_ID = EMOJI["ruby"][0]
 FALLBACK = {
     "mafia": "🎭", "code": "🔑", "wordseek": "🔤", "assoc": "💬", "roulette": "🔫", "bunker": "🛡",
     "seabattle": "🚢", "poker": "🃏", "blackjack": "🃏", "ttt": "⭕", "rps": "🎲", "duel": "🗡", "hangman": "🪢", "memory": "🎮", "whomost": "💬", "coin": "🪙", "slot": "🎰", "mines": "💣", "tower": "🗼",
+    "bowling": "🎳", "darts": "🎯", "dice": "🎲", "basket": "🏀",
 }
 # Короткие подписи для кнопок (полные названия остаются в тексте и в лобби)
 LABELS = {"bunker": "Бункер", "whomost": "Кто скорее всего", "duel": "Дуэль", "poker": "Покер", "blackjack": "Блэкджек"}
@@ -65,8 +66,11 @@ ONE_LINE = 15  # подпись длиннее этого числа знако�
 
 PICKER_SEC = 60
 LOBBY_STAKE = ("roulette", "poker", "blackjack")  # групповые игры со ставкой (набор открывается как лобби)
-SOLO_STAKE = ("coin", "slot", "mines", "tower")  # игры в одиночку: ставка обязательна, лобби и соперника нет
-SOLO_TITLES = {"coin": coinflip.TITLE, "slot": slot.TITLE, "mines": mines.TITLE, "tower": tower.TITLE}
+SOLO_CASUAL = ("coin", "mines", "tower")          # одиночные игры раздела «В одиночку»
+ARCADES = arcade.ORDER                            # аркады: слот-машина, боулинг, дартс, кубик, баскетбол
+SOLO_STAKE = SOLO_CASUAL + ARCADES  # игры в одиночку: ставка обязательна, лобби и соперника нет
+SOLO_TITLES = {"coin": coinflip.TITLE, "mines": mines.TITLE, "tower": tower.TITLE, "slot": arcade.SLOT_TITLE,
+               **{k: g.title for k, g in arcade.GAMES.items()}}
 pickers: Dict[int, Message] = {}  # меню выбора ставки: одно на игрока
 picker_tasks: Dict[int, asyncio.Task] = {}  # таймер автозакрытия меню
 awaiting: Dict[int, str] = {}  # игрок нажал «Своя сумма» и ждём от него число: {user_id: ключ игры}
@@ -149,7 +153,7 @@ def games_text() -> str:
 
     def section(emoji: str, title: str, note: str, lines: List[str]) -> str:
         return (f"\n{e(emoji)} <b>{title}</b>\n<i>{note}</i>\n"
-                f"<blockquote expandable>" + "\n".join(lines) + "</blockquote>")
+                f"<blockquote expandable>" + "\n\n".join(lines) + "</blockquote>")
 
     games = lobby_games()
     if games or features.is_on("mafia"):
@@ -164,13 +168,15 @@ def games_text() -> str:
     if solo:
         solo_lines = {
             "coin": f"{esc(coinflip.TITLE)}: {code('/coin [ставка]')}, угадаешь сторону монеты и ставка удвоится",
-            "slot": f"{esc(slot.TITLE)}: {code('/slot [ставка]')}, три разных — проигрыш, два одинаковых — "
-                    f"ставка возвращается, три — умножение ({slot.table_text()})",
+            "slot": f"{esc(arcade.SLOT_TITLE)}: {code('/slot [ставка]')}, три разных — проигрыш, два одинаковых — "
+                    f"ставка возвращается, три — умножение ({arcade.slot_table_text()})",
             "mines": f"{esc(mines.TITLE)}: {code('/mines [ставка]')}, открывай клетки с алмазами, бонус растёт, "
                      f"мина сжигает ставку",
             "tower": f"{esc(tower.TITLE)}: {code('/tower [ставка]')}, поднимайся по этажам, выбирая безопасную клетку, "
                      f"бонус растёт, мина сжигает ставку",
         }
+        for k, g in arcade.GAMES.items():
+            solo_lines[k] = f"{esc(g.title)}: {code('/' + g.command + ' [ставка]')}, {esc(g.rules)}"
         t += section("dice", "В одиночку", "ставка обязательна, играешь против бота",
                      [solo_lines[k] for k, _ in solo])
     duo = two_player()
@@ -223,11 +229,13 @@ async def launch(bot, chat_id: int, user, key: str, stake: int = 0, all_in: bool
     if key == "coin":
         return await coinflip.open_coin(bot, chat_id, user, stake)
     if key == "slot":
-        return await slot.spin(bot, chat_id, user, stake)
+        return await arcade.spin_slot(bot, chat_id, user, stake)
     if key == "mines":
         return await mines.open_mines(bot, chat_id, user, stake)
     if key == "tower":
         return await tower.open_tower(bot, chat_id, user, stake)
+    if key in arcade.GAMES:
+        return await arcade.play(bot, chat_id, user, key, stake)
     if key in DUELS:
         return await create_challenge(bot, chat_id, user, key, stake)
     if key in GAMES:
@@ -301,9 +309,12 @@ def picker_text(key: str, name: str, balance: int) -> str:
     elif key == "blackjack":
         rule = (f"Выбери ставку. Каждый берёт карты в личке: «Ещё», «Хватит» или «Выйти». "
                 f"Кто ближе к 21, тот победил и забирает ставку у проигравших. Больше 21 — автоматический проигрыш.")
+    elif key in arcade.GAMES:
+        g = arcade.GAMES[key]
+        rule = (f"Выбери ставку, и бот сразу сделает бросок {arcade.icon_html(g)}. {g.intro} Бонус «{g.bonus_name}»: {g.rules}.")
     elif key == "slot":
         rule = ("Выбери ставку, и автомат сразу закрутится. Три разных символа: ставка уходит боту. "
-                f"Два одинаковых: ставка возвращается. Три одинаковых: ставка умножается ({slot.table_text()}).")
+                f"Два одинаковых: ставка возвращается. Три одинаковых: ставка умножается ({arcade.slot_table_text()}).")
     elif key == "mines":
         rule = (f"Выбери ставку, потом число мин на поле {mines.SIZE}×{mines.SIZE}. Каждый алмаз увеличивает бонус, "
                 "забрать выигрыш можно в любой момент, а мина сжигает ставку.")
@@ -494,7 +505,8 @@ async def games_cb(cb: CallbackQuery):
                 await _close_picker(user.id, cb.message)
             return
         await _close_picker(user.id, cb.message)
-        await cb.answer({"coin": "Выбери сторону монеты", "slot": "Крутим!", "mines": "Выбери число мин", "tower": "Выбери число мин"}.get(key, "Набор открыт!"))
+        await cb.answer({"coin": "Выбери сторону монеты", "slot": "Крутим!", "mines": "Выбери число мин", "tower": "Выбери число мин",
+                         "bowling": "Бросаем!", "darts": "Бросаем!", "dice": "Бросаем!", "basket": "Бросаем!"}.get(key, "Набор открыт!"))
         return
 
     if act == "bot":
