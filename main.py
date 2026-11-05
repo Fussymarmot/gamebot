@@ -58,8 +58,7 @@ async def on_startup(bot: Bot):
     await set_commands(bot)
     start_scheduler(bot)
     me = await bot.me()
-    # Только в консоль: ни в файл, ни в logging ничего не пишется.
-    print(f"Бот запущен: @{me.username} (иконки на кнопках: {'вкл' if ui.ICONS_ENABLED else 'выкл'})", flush=True)
+    logger.info("Бот запущен: @%s (иконки на кнопках: %s)", me.username, "вкл" if ui.ICONS_ENABLED else "выкл")
     if not me.can_read_all_group_messages:
         # Режим приватности включён: в группе бот получает только команды и ответы на свои сообщения,
         # поэтому слова и числа в Ассоциациях, WordSeek, «Взломай код» и т.д. он не увидит.

@@ -263,7 +263,8 @@ async def _finish(bot, chat_id: int, user, cfg: Arcade, stake: int, dice: Messag
                 extra, bonus_note = bonus_result(cfg.key, bdice.dice.value)
                 add = payout(stake, extra)
                 if add:
-                    await ec.credit(uid, add)
+                    # Ключ операции: повторный вызов не выплатит бонус второй раз.
+                    await ec.credit_once(f"arcade:{chat_id}:{dice.message_id}:bonus", uid, add)
                     total += add
             except (TelegramAPIError, AttributeError):
                 bonus_note = "Бонусный бросок не удался, выплата за первый бросок сохранена."
