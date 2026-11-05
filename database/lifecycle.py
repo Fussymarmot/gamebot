@@ -3,7 +3,7 @@ import os
 import shutil
 
 from database import settings, users
-from database.core import connect, DB_PATH, disconnect
+from database.core import DB_PATH, disconnect, exclusive
 from database.messages import flush_messages
 from database.schema import init_db
 
@@ -19,11 +19,11 @@ async def close():
 
 
 async def maintenance(vacuum: bool = False):
-    c = await connect()
     await flush_messages()
-    for sql in ("PRAGMA wal_checkpoint(TRUNCATE)", "PRAGMA optimize") + (("VACUUM",) if vacuum else ()):
-        cur = await c.execute(sql)
-        await cur.close()
+    async with exclusive() as c:  # VACUUM нельзя внутри транзакции, поэтому просто занимаем писателя
+        for sql in ("PRAGMA wal_checkpoint(TRUNCATE)", "PRAGMA optimize") + (("VACUUM",) if vacuum else ()):
+            cur = await c.execute(sql)
+            await cur.close()
 
 
 async def replace_database(new_path: str):

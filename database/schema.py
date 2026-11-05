@@ -1,5 +1,5 @@
 """Создание таблиц и мелкие миграции колонок."""
-from database.core import connect
+from database.core import tx
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS users (
@@ -84,13 +84,11 @@ COLUMNS = [
 
 
 async def init_db():
-    c = await connect()
-    for sql in TABLES:
-        await c.execute(sql)
-    for table, column, definition in COLUMNS:
-        cur = await c.execute(f"PRAGMA table_info({table})")
-        if column not in [r[1] for r in await cur.fetchall()]:
-            await c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-    await c.execute("CREATE INDEX IF NOT EXISTS idx_game_log_user ON game_log(user_id, played_at)")
-    await c.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at)")
-    await c.commit()
+    async with tx() as t:
+        for sql in TABLES:
+            await t.execute(sql)
+        for table, column, definition in COLUMNS:
+            if column not in [r[1] for r in await t.fetchall(f"PRAGMA table_info({table})")]:
+                await t.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        await t.execute("CREATE INDEX IF NOT EXISTS idx_game_log_user ON game_log(user_id, played_at)")
+        await t.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at)")

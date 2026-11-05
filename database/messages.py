@@ -4,7 +4,7 @@
 from datetime import timedelta
 from typing import List
 
-from database.core import connect, x
+from database.core import tx, x
 from utils.timeutils import now, ts
 
 _msg_buf: List[tuple] = []
@@ -21,10 +21,13 @@ async def flush_messages():
     if not _msg_buf:
         return
     buf, _msg_buf = _msg_buf, []
-    c = await connect()
-    await c.executemany(
-        "INSERT INTO messages (user_id, chat_id, text, created_at, message_id) VALUES (?,?,?,?,?)", buf)
-    await c.commit()
+    try:
+        async with tx() as t:
+            await t.executemany(
+                "INSERT INTO messages (user_id, chat_id, text, created_at, message_id) VALUES (?,?,?,?,?)", buf)
+    except BaseException:
+        _msg_buf = buf + _msg_buf  # запись откатилась, сообщения не теряем
+        raise
 
 
 async def cleanup_old_messages():

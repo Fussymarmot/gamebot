@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from database import game_stats, settings as db_settings
-from database.core import batch, connect, q, x
+from database.core import batch, q, tx, x
 from database.settings import get_setting
 from utils.fmt import plain
 from utils.timeutils import now, parse_ts, ts
@@ -91,53 +91,35 @@ async def add_coins(uid: int, amount: int):
             (amount, max(amount, 0), uid))
 
 
-_pay_lock = asyncio.Lock()
+_ENSURE = "INSERT OR IGNORE INTO wallets (user_id, coins, total_earned) VALUES (?,0,0)"
+_SPEND = "UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?"
 
 
 async def transfer(src: int, dst: int, amount: int) -> bool:
     """Перевод рубинов от src к dst. False, если у отправителя не хватает рубинов.
 
-    Списание условное (coins >= amount), поэтому баланс не уйдёт в минус даже при
-    одновременных переводах. total_earned не трогаем: перевод не «заработок».
+    Списание и зачисление идут одной транзакцией: если что-то упало на полпути, откатывается
+    всё целиком. Списание условное (coins >= amount), баланс не уйдёт в минус.
+    total_earned не трогаем: перевод не «заработок».
     """
     if amount <= 0 or src == dst:
         return False
-    async with _pay_lock:
-        await ensure(src)
-        await ensure(dst)
-        c = await connect()
-        cur = await c.execute("UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?",
-                              (amount, src, amount))
-        ok = cur.rowcount == 1
-        await cur.close()
-        if not ok:
-            await c.commit()
+    async with tx() as t:
+        await t.execute(_ENSURE, (src,))
+        await t.execute(_ENSURE, (dst,))
+        if await t.execute(_SPEND, (amount, src, amount)) != 1:
             return False
-        try:
-            cur = await c.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, dst))
-            await cur.close()
-        except Exception:
-            cur = await c.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, src))
-            await cur.close()
-            await c.commit()
-            raise
-        await c.commit()
-        return True
+        await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, dst))
+    return True
 
 
 async def debit(uid: int, amount: int) -> bool:
     """Списывает ставку. False, если рубинов не хватает (баланс не уходит в минус)."""
     if amount <= 0:
         return False
-    async with _pay_lock:
-        await ensure(uid)
-        c = await connect()
-        cur = await c.execute("UPDATE wallets SET coins = coins - ? WHERE user_id=? AND coins >= ?",
-                              (amount, uid, amount))
-        ok = cur.rowcount == 1
-        await cur.close()
-        await c.commit()
-        return ok
+    async with tx() as t:
+        await t.execute(_ENSURE, (uid,))
+        return await t.execute(_SPEND, (amount, uid, amount)) == 1
 
 
 async def credit(uid: int, amount: int):
