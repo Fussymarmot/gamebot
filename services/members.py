@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections import OrderedDict
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
@@ -8,7 +9,18 @@ from config import ADMIN_ID, GROUP_ID
 from database.users import all_known_user_ids, count_members, get_member_flag, save_user, set_member
 
 
-_cache: dict = {}
+# TTL + верхняя граница защищают от бесконечного роста при большом числе участников.
+_CACHE_MAX = 20_000
+_cache = OrderedDict()
+
+
+def _remember(user_id: int, value: bool):
+    _cache[user_id] = (value, time.monotonic() + (TTL_YES if value else TTL_NO))
+    _cache.move_to_end(user_id)
+    while len(_cache) > _CACHE_MAX:
+        _cache.popitem(last=False)
+
+
 TTL_YES = 3600
 TTL_NO = 120
 
@@ -23,7 +35,7 @@ def _status_ok(member) -> bool:
 
 
 def remember(user_id: int, value: bool):
-    _cache[user_id] = (value, time.time() + (TTL_YES if value else TTL_NO))
+    _remember(user_id, value)
 
 
 async def register(user, in_group: bool = True):
@@ -34,7 +46,8 @@ async def register(user, in_group: bool = True):
         return
     await save_user(user.id, user.username or "", user.first_name or "", user.last_name or "")
     hit = _cache.get(user.id)
-    if hit and hit[0] == in_group and hit[1] > time.time():
+    if hit and hit[0] == in_group and hit[1] > time.monotonic():
+        _cache.move_to_end(user.id)
         return
     remember(user.id, in_group)
     await set_member(user.id, in_group)
@@ -44,7 +57,8 @@ async def is_member(bot: Bot, user_id: int) -> bool:
     if user_id == ADMIN_ID:
         return True
     hit = _cache.get(user_id)
-    if hit and hit[1] > time.time():
+    if hit and hit[1] > time.monotonic():
+        _cache.move_to_end(user_id)
         return hit[0]
     try:
         m = await bot.get_chat_member(GROUP_ID, user_id)
