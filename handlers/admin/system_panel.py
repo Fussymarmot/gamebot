@@ -21,6 +21,7 @@ from services.scheduler import schedule_maint_end, unschedule_maint_end
 from utils import ui
 from utils.emoji import e
 from utils.fmt import code, esc
+from utils.logs import logger
 from utils.targets import parse_free
 from utils.timeutils import now, parse_ts, ts, TZ
 from utils.ui import kb
@@ -192,7 +193,7 @@ async def mod_untag(cb: CallbackQuery):
     try:
         await tags.set_member_tag(cb.bot, uid, None)
     except Exception:
-        pass
+        logger.warning("Не удалось снять тег с игрока %s из админ-панели", uid, exc_info=True)
     await log_mod(ADMIN_ID, uid, "untag", "панель")
     await mod_view(cb)
 
@@ -261,7 +262,7 @@ async def mt_confirm(cb: CallbackQuery, state: FSMContext):
     try:
         await cb.bot.send_message(GROUP_ID, maintenance.notice())
     except Exception:
-        pass
+        logger.debug("Не удалось объявить о начале техработ", exc_info=True)
     await mt_view(cb)
 
 
@@ -272,7 +273,7 @@ async def mt_off(cb: CallbackQuery):
     try:
         await cb.bot.send_message(GROUP_ID, "✅ <b>Технические работы завершены.</b>\nБот снова работает!")
     except Exception:
-        pass
+        logger.debug("Не удалось объявить о завершении техработ", exc_info=True)
     await mt_view(cb)
 
 
@@ -310,6 +311,7 @@ def memory_mb() -> float:
         import resource
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     except Exception:
+        logger.debug("Не удалось узнать потребление памяти", exc_info=True)
         return 0.0
 
 

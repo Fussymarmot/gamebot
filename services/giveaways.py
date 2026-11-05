@@ -9,6 +9,7 @@ from database.moderation import is_user_banned
 from database.users import get_user_name
 from utils.emoji import e
 from utils.fmt import esc, rich
+from utils.logs import logger
 from utils.timeutils import now, parse_ts, ts
 
 
@@ -177,7 +178,7 @@ async def finish(bot, gid: int) -> Optional[List[int]]:
                 f"{announce_text(g, await entries_count(gid))}\n\n<b>Розыгрыш завершён.</b>",
                 chat_id=GROUP_ID, message_id=g["message_id"])
     except Exception:
-        pass
+        logger.debug("Не удалось объявить итоги розыгрыша %s", gid, exc_info=True)
     return winners
 
 
@@ -191,5 +192,5 @@ async def cancel(bot, gid: int):
             await bot.edit_message_text(f"{announce_text(g)}\n\n<b>Розыгрыш отменён.</b>",
                                         chat_id=GROUP_ID, message_id=g["message_id"])
     except Exception:
-        pass
+        logger.debug("Не удалось обновить сообщение отменённого розыгрыша %s", gid, exc_info=True)
     return True

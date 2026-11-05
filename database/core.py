@@ -23,6 +23,7 @@ from typing import Optional
 import aiosqlite
 
 from config import BASE_DIR
+from utils.logs import logger
 
 DB_PATH = os.path.join(BASE_DIR, "bot.db")
 
@@ -74,7 +75,7 @@ async def disconnect():
                     try:
                         await c.close()
                     except Exception:
-                        pass
+                        logger.debug("Не удалось закрыть соединение с базой", exc_info=True)
             _conn = None
             _rconn = None
 
@@ -92,18 +93,31 @@ async def _run(c: aiosqlite.Connection, sql: str, params=()):
 
 
 async def _rollback(c: aiosqlite.Connection):
+    """Дожидается ROLLBACK даже при повторной отмене текущей задачи."""
+    task = asyncio.create_task(_run(c, "ROLLBACK"))
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Отмена исходной задачи уже обрабатывается в tx(); не бросаем
+            # соединение в неопределённом состоянии, пока откат ещё выполняется.
+            continue
+        except Exception:
+            break
     try:
-        # shield: откат доведётся до конца, даже если задачу отменяют прямо сейчас
-        await asyncio.shield(_run(c, "ROLLBACK"))
-    except Exception:
-        pass  # «нет активной транзакции» — значит, откатывать нечего
+        task.result()
+    except Exception as exc:
+        # Отсутствие активной транзакции допустимо; остальные ошибки важны.
+        if "no transaction is active" not in str(exc).lower():
+            logger.exception("Не удалось выполнить ROLLBACK SQLite", exc_info=exc)
 
 
 class Tx:
-    """Операции внутри открытой транзакции."""
+    """Операции внутри открытой транзакции, принадлежащей одной asyncio-задаче."""
 
     def __init__(self, conn: aiosqlite.Connection):
         self._c = conn
+        self.owner = asyncio.current_task()
         self.active = True
         self.lastrowid = 0
 
@@ -144,7 +158,16 @@ _current: contextvars.ContextVar[Optional[Tx]] = contextvars.ContextVar("db_tx",
 
 def _active_tx() -> Optional[Tx]:
     t = _current.get()
-    return t if t is not None and t.active else None
+    if t is None or not t.active:
+        return None
+    # ContextVar копируется в asyncio.create_task(). Не разрешаем дочерней задаче
+    # незаметно пользоваться соединением/транзакцией родителя.
+    if t.owner is not asyncio.current_task():
+        raise RuntimeError(
+            "Нельзя использовать транзакцию из другой asyncio-задачи; "
+            "не создавайте asyncio.create_task() внутри database.tx()"
+        )
+    return t
 
 
 @asynccontextmanager

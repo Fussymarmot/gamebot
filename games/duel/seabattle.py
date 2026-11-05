@@ -16,6 +16,7 @@ from games.duel.challenge import NEED_DM, open_challenge, register_duel
 from games.invites import acquire, is_busy, release
 from utils import richui
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 KEY = "seabattle"
@@ -177,7 +178,7 @@ async def group_status(bot, g, text):
         else:
             g.group_mid = (await bot.send_message(g.group_chat, text)).message_id
     except Exception:
-        pass
+        logger.debug("Не удалось обновить общее поле морского боя", exc_info=True)
 
 
 def drop(gid):
@@ -280,7 +281,7 @@ async def setup_cb(cb: CallbackQuery):
             try:
                 await cb.message.edit_reply_markup(reply_markup=None)
             except Exception:
-                pass
+                logger.debug("Не удалось убрать кнопки готовности морского боя", exc_info=True)
             await cb.answer("Готов! Ждём соперника.")
         else:
             await cb.answer("Бой начался!")
@@ -315,7 +316,7 @@ async def finish(bot, gid, g, winner, note=""):
             try:
                 await add_game_result(u, KEY, r)
             except Exception:
-                pass
+                logger.exception("Не удалось записать результат морского боя для игрока %s", u)
 
 
 def after_shot(g, shooter, res, cell):

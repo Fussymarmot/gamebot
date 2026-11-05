@@ -19,7 +19,6 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramRet
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
-from database.core import x
 from games import pause
 from games.core import dm, finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
 from games.duel.challenge import MAX_STAKE
@@ -28,6 +27,7 @@ from services import economy as ec
 from utils import ui
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 
@@ -237,7 +237,9 @@ async def refresh_dms(lobby: Lobby):
 async def start_game(lobby: Lobby):
     stake = lobby.data.get("stake", 0)
     if stake:
-        poor = [u for u in lobby.players if (await ec.wallet(u))[0] < stake]
+        ref = lobby.data["escrow"] = f"lobby:{lobby.gid}"
+        held = await ec.escrow_hold(ref, {u: stake for u in lobby.players})
+        poor = [u for u in lobby.players if u not in held]
         for u in poor:
             lobby.players.pop(u, None)
         if poor and len(lobby.players) < 2:
@@ -291,10 +293,11 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
+        logger.exception("Ошибка в игре в блэкджек в чате %s", lobby.chat_id)
         try:
             await bot.send_message(lobby.chat_id, "⚠️ В блэкджеке случилась ошибка, игра остановлена. Рубины не списаны.")
         except Exception:
-            pass
+            logger.debug("Не удалось сообщить об ошибке блэкджека в чат %s", lobby.chat_id, exc_info=True)
     finally:
         d["closing"] = True
         if not d["finished"]:           # игра прервана: убираем кнопки из личек, сами сообщения остаются
@@ -302,36 +305,33 @@ async def run(lobby: Lobby):
             try:
                 await refresh_dms(lobby)
             except Exception:
-                pass
+                logger.debug("Не удалось обновить личные сообщения блэкджека", exc_info=True)
         await _delete(bot, lobby.chat_id, d.get("msg_id"))
         finish(lobby)
 
 
 async def settle(lobby: Lobby, winners: List[Player]) -> Dict[int, int]:
-    """Проигравшие отдают ставку (сколько есть на балансе), победители делят собранное поровну."""
-    d, g = lobby.data, lobby.data["game"]
-    stake = d.get("stake", 0)
-    if not stake or not winners:
+    """Эскроу: проигравшие теряют ставку, победители получают свою и делят собранное поровну.
+    Ничья (победителей нет) возвращает все ставки."""
+    ref = lobby.data.get("escrow")
+    if not ref:
         return {}
-    win = {p.uid for p in winners}
-    delta: Dict[int, int] = {}
-    pot = 0
-    for p in g.players:
-        if p.uid in win:
-            continue
-        pay = min(stake, (await ec.wallet(p.uid))[0])
-        if pay:
-            await x("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (pay, p.uid))
-            pot += pay
-            delta[p.uid] = -pay
-    if pot:
-        share, rem = divmod(pot, len(winners))
-        for i, p in enumerate(winners):
-            got = share + (1 if i < rem else 0)
-            if got:
-                await ec.ensure(p.uid)
-                await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (got, p.uid))
-                delta[p.uid] = got
+    held = await ec.escrow_get(ref)
+    won = [p.uid for p in winners if p.uid in held]
+    if not won:
+        await ec.escrow_refund(ref)
+        return {}
+    pot = sum(a for u, a in held.items() if u not in won)
+    payouts, delta = {u: held[u] for u in won}, {}
+    share, rem = divmod(pot, len(won))
+    for i, u in enumerate(won):
+        got = share + (1 if i < rem else 0)
+        payouts[u] += got
+        if got:
+            delta[u] = got
+    if await ec.escrow_payout(ref, payouts) is None:
+        return {}
+    delta.update({u: -a for u, a in held.items() if u not in won})
     return delta
 
 

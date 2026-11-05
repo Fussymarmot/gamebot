@@ -1,6 +1,7 @@
 """Точка входа: python main.py"""
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -15,18 +16,36 @@ from games import core as games_core
 from games import gamemute
 from handlers import get_routers
 from handlers.economy import economy
-from services import features, maintenance, tags
+from services import economy as svc_economy, features, maintenance, tags
 from services.commands import set_commands
 from services.economy import load_shop
 from services.scheduler import scheduler, start_scheduler
 from utils import ui
+from utils.logs import logger
 from utils.premium import PremiumEmoji
 
-logging.disable(logging.CRITICAL)  # логирование отключено полностью (и у библиотек тоже)
+
+def setup_logging():
+    """Логи включены: ошибки больше не проглатываются молча.
+
+    Уровень можно задать переменной окружения LOG_LEVEL (DEBUG/INFO/WARNING/ERROR).
+    """
+    level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    )
+    # aiogram пишет каждое обновление на INFO — оставляем только предупреждения и ошибки.
+    logging.getLogger("aiogram").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+
+setup_logging()
 
 
 async def on_startup(bot: Bot):
     await init_db()
+    await svc_economy.escrow_recover()
     await maintenance.load()
     await features.load()
     await load_shop()
@@ -53,7 +72,7 @@ async def on_startup(bot: Bot):
                           "<b>Turn off</b>. Потом удали бота из группы и добавь снова (или просто сделай его "
                           "админом) и перезапусти.")
         except Exception:
-            pass
+            logger.exception("Не удалось отправить админу предупреждение о режиме приватности")
 
 
 async def on_shutdown(bot: Bot):

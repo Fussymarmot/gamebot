@@ -20,6 +20,7 @@ from games.party.mafia.engine import MafiaGame
 from games.party.mafia.roles import DESC, EMOJI, NAME, TEAM
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.timeutils import ts
 from utils.ui import kb, name_rows
 
@@ -120,7 +121,12 @@ async def open_mafia_lobby(bot, chat_id: int, user) -> Optional[str]:
     if _info is not None:
         _info["owner"] = s
     g.add_player(user.id, user.first_name or user.username or "Игрок")
-    s.lobby_msg = await bot.send_message(chat_id, await lobby_text(s), reply_markup=lobby_kb(g.gid))
+    try:
+        s.lobby_msg = await bot.send_message(chat_id, await lobby_text(s), reply_markup=lobby_kb(g.gid))
+    except Exception:
+        logger.exception("Не удалось отправить сообщение лобби мафии в чат %s", chat_id)
+        _drop(chat_id)     # не оставляем чат занятым, если сообщение лобби не отправилось
+        raise
     asyncio.create_task(_lobby_expire(s))
     return None
 
@@ -139,7 +145,7 @@ async def _lobby_expire(s: Session):
         try:
             await s.lobby_msg.edit_text("🎭 <b>Лобби мафии закрыто</b>\n<i>Время ожидания вышло.</i>")
         except Exception:
-            pass
+            logger.debug("Не удалось обновить сообщение закрытого лобби мафии %s", s.game.chat_id, exc_info=True)
 
 
 async def stop_game(bot, chat_id: int, reason: str):
@@ -152,7 +158,7 @@ async def stop_game(bot, chat_id: int, reason: str):
     try:
         await bot.send_message(chat_id, f"{e('skull')} <b>Мафия остановлена</b>\n<i>{esc(reason)}</i>")
     except Exception:
-        pass
+        logger.debug("Не удалось сообщить об остановке мафии в чат %s", chat_id, exc_info=True)
     return True
 
 
@@ -191,7 +197,7 @@ async def begin_game(s: Session, cb: CallbackQuery):
     try:
         await s.lobby_msg.edit_text(texts.START_TEXT.format(n=len(g.players), m=m))
     except Exception:
-        pass
+        logger.debug("Не удалось обновить сообщение лобби мафии при старте", exc_info=True)
     s.task = asyncio.create_task(run_game(s))
 
 
@@ -386,7 +392,7 @@ async def _deliver_private(s: Session, priv):
                 await m.edit_text((base + "\n\n" if base else "") + body)
                 continue
             except Exception:
-                pass
+                logger.debug("Не удалось обновить личное сообщение мафии игроку %s", uid, exc_info=True)
         await dm(s.bot, uid, body)
 
 
@@ -395,7 +401,7 @@ async def _clear_night_msg(s: Session):
         try:
             await s.night_msg.delete()
         except Exception:
-            pass
+            logger.debug("Не удалось удалить ночное сообщение мафии", exc_info=True)
         s.night_msg = None
 
 
@@ -424,7 +430,7 @@ async def night_phase(s: Session) -> str:
             try:
                 await m.edit_text(s.dm_text[uid])
             except Exception:
-                pass
+                logger.debug("Не удалось сообщить мафии о таймауте игроку %s", uid, exc_info=True)
     res = g.resolve_night()
     await _deliver_private(s, res.priv)
     dead = [(p.uid, p.name, NAME[p.role]) for p, _ in res.deaths]
@@ -478,7 +484,7 @@ async def vote_phase(s: Session, morning: str):
         try:
             await s.vote_msg.edit_text(text)
         except Exception:
-            pass
+            logger.debug("Не удалось обновить итоги голосования мафии", exc_info=True)
 
 
 async def kamikaze_phase(s: Session, kuid: int):
@@ -516,11 +522,12 @@ async def run_game(s: Session):
     except asyncio.CancelledError:
         raise
     except Exception:
+        logger.exception("Ошибка в игре «Мафия» в чате %s", g.chat_id)
         _drop(g.chat_id)
         try:
             await bot.send_message(g.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
         except Exception:
-            pass
+            logger.debug("Не удалось сообщить об ошибке мафии в чат %s", g.chat_id, exc_info=True)
 
 
 WIN_TEXT = {
@@ -551,4 +558,4 @@ async def end_game(s: Session, key: str):
         for p in g.players.values():
             await add_game_result(p.uid, "mafia", "win" if p.uid in win_ids else "loss")
     except Exception:
-        pass
+        logger.exception("Не удалось сохранить результаты мафии")

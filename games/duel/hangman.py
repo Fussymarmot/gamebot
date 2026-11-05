@@ -20,6 +20,7 @@ from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils import richui
 from utils.fmt import esc
+from utils.logs import logger
 from utils.titles import BAD
 
 router = Router()
@@ -174,13 +175,13 @@ async def finish(bot, gid: str, g: Hangman, guesser_won: bool, note: str):
     try:
         await _announce_end(bot, gid, g, note)
     except Exception:
-        pass
+        logger.debug("Не удалось показать итог виселицы %s", gid, exc_info=True)
     winner, loser = (g.guesser, g.setter) if guesser_won else (g.setter, g.guesser)
     for u, r in ((winner, "win"), (loser, "loss")):
         try:
             await add_game_result(u, KEY, r)
         except Exception:
-            pass
+            logger.exception("Не удалось записать результат виселицы для игрока %s", u)
 
 
 async def watch(bot, gid: str):
@@ -198,7 +199,7 @@ async def watch(bot, gid: str):
                     await bot.edit_message_text("Время вышло, игра отменена.", chat_id=g.setter,
                                                 message_id=g.dm_mid)
                 except Exception:
-                    pass
+                    logger.debug("Не удалось сообщить о таймауте виселицы игроку %s", g.setter, exc_info=True)
             return
         if g.phase == "play" and idle > IDLE_SEC:
             drop(gid)
@@ -234,6 +235,7 @@ async def start_game(msg: Message, setter: int, setter_name: str, guesser: int, 
                 InlineKeyboardButton(text="🚫 Отмена", callback_data=f"hgx:{gid}")]]))
         g.dm_mid = sent.message_id
     except Exception:
+        logger.warning("Не удалось написать загадывающему в личку, виселица %s отменена", gid, exc_info=True)
         drop(gid)
         await msg.answer("❌ Не получилось написать в личку, игра отменена.")
         return
@@ -276,7 +278,7 @@ async def got_word(message: Message):
         try:
             await message.bot.edit_message_reply_markup(chat_id=g.setter, message_id=g.dm_mid, reply_markup=None)
         except Exception:
-            pass
+            logger.debug("Не удалось убрать кнопки виселицы в личке %s", g.setter, exc_info=True)
     await render(message.bot, gid, g)
 
 
@@ -292,7 +294,7 @@ async def cancel_cb(cb: CallbackQuery):
     try:
         await cb.message.edit_text("Игра отменена.")
     except Exception:
-        pass
+        logger.debug("Не удалось показать отмену виселицы", exc_info=True)
     await cb.answer()
 
 

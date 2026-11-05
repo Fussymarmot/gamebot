@@ -34,6 +34,11 @@ TABLES = [
     """CREATE TABLE IF NOT EXISTS wallets (
         user_id INTEGER PRIMARY KEY, coins INTEGER DEFAULT 0, total_earned INTEGER DEFAULT 0,
         title TEXT, last_reward TEXT)""",
+    """CREATE TABLE IF NOT EXISTS escrow (
+        ref TEXT, user_id INTEGER, amount INTEGER NOT NULL, PRIMARY KEY (ref, user_id))""",
+    """CREATE TABLE IF NOT EXISTS balance_operations (
+        operation_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, amount INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP)""",
     """CREATE TABLE IF NOT EXISTS achievements (
         user_id INTEGER, key TEXT, earned_at TEXT, PRIMARY KEY (user_id, key))""",
     """CREATE TABLE IF NOT EXISTS daily_tasks (

@@ -11,6 +11,7 @@ from config import GROUP_ID
 from database.messages import save_message
 from database.users import save_user, set_member
 from services import members, tags
+from utils.logs import logger
 
 
 
@@ -31,5 +32,5 @@ class StatsMiddleware(BaseMiddleware):
                     asyncio.create_task(
                         tags.enforce(event.bot, user.id, getattr(event, "sender_tag", None)))
             except Exception:
-                pass
+                logger.warning("Не удалось сохранить статистику сообщения игрока %s", user.id, exc_info=True)
         return await handler(event, data)

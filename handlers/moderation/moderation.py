@@ -11,6 +11,7 @@ from services import mods, modtools, tags
 from services.modtools import appeal_kb, label, MUTE_MINUTES, muted_text, name_of
 from utils.emoji import e
 from utils.fmt import code, esc
+from utils.logs import logger
 from utils.targets import parse_target
 from utils.timeutils import parse_ts, ts
 from utils.ui import kb
@@ -169,7 +170,7 @@ async def cmd_untag(message: Message):
     try:
         await tags.set_member_tag(message.bot, t.id, None)
     except Exception:
-        pass
+        logger.warning("Не удалось снять тег с игрока %s", t.id, exc_info=True)
     await log_mod(message.from_user.id, t.id, "untag")
     await message.answer(f"{e('check')} Тег снят с <b>{esc(t.name)}</b>")
 

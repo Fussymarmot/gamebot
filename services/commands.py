@@ -9,6 +9,7 @@ from aiogram.types import (BotCommand, BotCommandScopeAllGroupChats, BotCommandS
                            BotCommandScopeChat, BotCommandScopeChatMember)
 
 from config import ADMIN_ID, GROUP_ID
+from utils.logs import logger
 from services import features
 
 
@@ -131,4 +132,5 @@ async def set_commands(bot: Bot):
         await bot.set_my_commands(admin, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
         return True
     except Exception:
+        logger.exception("Не удалось обновить команды бота")
         return False

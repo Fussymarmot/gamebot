@@ -15,6 +15,7 @@ from games import gamemute, pause
 from services.quiet import quiet_config, quiet_state
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.timeutils import MSK
 from utils.ui import kb
 
@@ -104,6 +105,7 @@ class Lobby:
         self.task: Optional[asyncio.Task] = None
         self.started = False
         self.starting = False      # ставится синхронно, до первого await, чтобы второй «Старт» не прошёл
+        self.stopped = False       # лобби закрыли (/stopgame, отмена, таймаут): запуск больше не продолжается
         self.data: dict = {}
 
     def text(self) -> str:
@@ -131,6 +133,11 @@ class Lobby:
 
 
 def finish(lobby: Lobby):
+    lobby.stopped = True
+    ref = lobby.data.get("escrow")
+    if ref:      # если партия не рассчитана (отмена, сбой, остановка), ставки вернутся; после расчёта это no-op
+        from services import economy as _ec
+        _ec.escrow_refund_bg(ref)
     if lobbies.get(lobby.chat_id) is lobby:
         lobbies.pop(lobby.chat_id, None)
     release(lobby.chat_id, owner=lobby)
@@ -140,14 +147,21 @@ async def _lobby_stop(bot, chat_id: int, reason: str):
     lobby = lobbies.get(chat_id)
     if not lobby:
         return
+    lobby.stopped = True
     if lobby.task and lobby.task is not asyncio.current_task():
         lobby.task.cancel()
     lobbies.pop(chat_id, None)
+    if lobby.data.get("escrow"):
+        from services import economy as _ec
+        try:
+            await _ec.escrow_refund(lobby.data["escrow"])
+        except Exception:
+            logger.exception("Не удалось вернуть эскроу при остановке лобби %s", chat_id)
     try:
         await bot.send_message(chat_id, f"{e('stop')} <b>{esc(lobby.game.title)} остановлена</b>\n"
                                         f"<i>{esc(reason)}</i>")
     except Exception:
-        pass
+        logger.exception("Не удалось отправить сообщение об остановке игры в чат %s", chat_id)
 
 
 async def open_lobby(bot, chat_id: int, user, game: GameDef) -> Optional[str]:
@@ -168,7 +182,11 @@ async def open_lobby(bot, chat_id: int, user, game: GameDef) -> Optional[str]:
     lobbies[chat_id] = lobby
     registry[chat_id]["owner"] = lobby
     lobby.players[user.id] = user.first_name or user.username or "Игрок"
-    lobby.msg = await bot.send_message(chat_id, lobby.text(), reply_markup=lobby.markup())
+    try:
+        lobby.msg = await bot.send_message(chat_id, lobby.text(), reply_markup=lobby.markup())
+    except Exception:
+        finish(lobby)      # не оставляем чат занятым, если сообщение лобби не отправилось
+        raise
     asyncio.create_task(_lobby_expire(lobby))
     return None
 
@@ -180,7 +198,7 @@ async def _lobby_expire(lobby: Lobby):
         try:
             await lobby.msg.edit_text(f"{e('stop')} <b>Лобби закрыто</b>\n<i>Время ожидания вышло.</i>")
         except Exception:
-            pass
+            logger.debug("Не удалось обновить сообщение закрытого лобби %s", lobby.chat_id, exc_info=True)
 
 
 @router.callback_query(F.data.startswith("lb:"))
@@ -274,11 +292,25 @@ async def lobby_cb(cb: CallbackQuery):
                                       f"<i>Игра началась! Игроков: {len(lobby.players)}</i>")
         except TelegramBadRequest:
             pass
-        try:
-            await g.start(lobby)
-        except Exception:
+        # Пока шло редактирование, /stopgame, отмена или таймаут могли закрыть лобби.
+        if lobby.stopped or lobbies.get(lobby.chat_id) is not lobby:
             finish(lobby)
-            await cb.message.answer("⚠️ Не удалось запустить игру.")
+            return
+        # Сам запуск — отдельная задача: /stopgame успеет отменить и его, а не только уже созданную игру.
+        task = asyncio.create_task(g.start(lobby))
+        lobby.task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            finish(lobby)
+            return
+        except Exception:
+            logger.exception("Не удалось запустить игру %s в чате %s", g.title, lobby.chat_id)
+            finish(lobby)
+            try:
+                await cb.message.answer("⚠️ Не удалось запустить игру.")
+            except Exception:
+                logger.debug("Не удалось сообщить о сбое запуска игры", exc_info=True)
 
 
 async def quiet_watch(bot):
@@ -305,7 +337,7 @@ async def quiet_watch(bot):
                         chat_id, f"🌙 Через {int(minutes) + 1} мин. начнётся тихое время, "
                                  "игра будет завершена.")
                 except Exception:
-                    pass
+                    logger.exception("Не удалось предупредить чат %s о тихом времени", chat_id)
 
 
 class InGame(Filter):
@@ -332,4 +364,4 @@ async def record_results(game_key: str, players, winners):
         try:
             await add_game_result(uid, game_key, "win" if uid in win else "loss")
         except Exception:
-            pass
+            logger.exception("Не удалось записать результат игры %s для игрока %s", game_key, uid)

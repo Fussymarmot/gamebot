@@ -10,6 +10,7 @@ from games import ai_content as ai_games, pause
 from games.core import finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
 from services import ai
 from utils.fmt import esc
+from utils.logs import logger
 from utils.premium import raw
 
 router = Router()
@@ -59,7 +60,7 @@ async def run(lobby: Lobby):
             try:
                 await d["msg"].edit_reply_markup(reply_markup=None)
             except Exception:
-                pass
+                logger.debug("Не удалось убрать кнопки Мемори в чате %s", lobby.chat_id, exc_info=True)
             answers = d["answers"]
             good = sorted(((t, u) for u, (ex, t) in answers.items() if ex == seq))
             lines = []
@@ -79,7 +80,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в игре «Мемори» в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 
@@ -93,7 +94,7 @@ async def _edit_status(lobby: Lobby, r: int):
                 f"Ответили: {len(d['answers'])}/{len(lobby.players)}</i>"),
             reply_markup=keyboard(r))
     except Exception:
-        pass
+        logger.debug("Не удалось обновить статус Мемори в чате %s", lobby.chat_id, exc_info=True)
 
 
 async def end(lobby: Lobby):

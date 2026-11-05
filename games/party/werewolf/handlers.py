@@ -11,6 +11,7 @@ from games.core import dm, finish, GameDef, lobbies, Lobby, open_lobby, record_r
 from games.party.werewolf.engine import ROLE_DESC, ROLE_EMOJI, ROLE_NAME, WerewolfGame
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import btn, name_rows
 from aiogram.types import InlineKeyboardMarkup
 
@@ -68,10 +69,11 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
+        logger.exception("Ошибка в игре «Оборотни» в чате %s", lobby.chat_id)
         try:
             await lobby.bot.send_message(lobby.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
         except Exception:
-            pass
+            logger.debug("Не удалось сообщить об ошибке оборотней в чат %s", lobby.chat_id, exc_info=True)
     finally:
         finish(lobby)
 
@@ -82,7 +84,7 @@ async def _clear_night_msg(lobby: Lobby):
         try:
             await m.delete()
         except Exception:
-            pass
+            logger.debug("Не удалось удалить ночное сообщение оборотней", exc_info=True)
         lobby.data["night_msg"] = None
 
 
@@ -116,7 +118,7 @@ async def night(lobby: Lobby) -> str:
             try:
                 await m.edit_text(d["dm_text"][uid])
             except Exception:
-                pass
+                logger.debug("Не удалось обновить личное сообщение оборотней игроку %s", uid, exc_info=True)
     res = g.resolve_night()
     for uid, (t, is_wolf) in res["checks"].items():
         body = f"🕵 {esc(g.players[t].name)}: <b>{'ОБОРОТЕНЬ' if is_wolf else 'мирный житель'}</b>."

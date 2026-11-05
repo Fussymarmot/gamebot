@@ -8,6 +8,7 @@ from config import ADMIN_ID, GROUP_ID
 from database.settings import get_setting
 from database.users import is_newbie
 from services import mods, modtools
+from utils.logs import logger
 
 LINK = re.compile(r"https?://|t\.me/|telegram\.me/|www\.|\b\w+\.(?:ru|com|net|org|me|io|xyz|ly)\b", re.I)
 
@@ -23,6 +24,7 @@ async def notice(message: Message, text: str, markup=None):
     try:
         msg = await message.answer(text, reply_markup=markup)
     except Exception:
+        logger.debug("Не удалось отправить уведомление автомодерации", exc_info=True)
         return
     if markup is None:
         import asyncio
@@ -32,7 +34,7 @@ async def notice(message: Message, text: str, markup=None):
             try:
                 await msg.delete()
             except Exception:
-                pass
+                logger.debug("Не удалось удалить уведомление автомодерации", exc_info=True)
         asyncio.create_task(later())
 
 
@@ -52,7 +54,7 @@ class AutoModMiddleware(BaseMiddleware):
             try:
                 await event.delete()
             except Exception:
-                pass
+                logger.debug("Не удалось удалить сообщение новичка со ссылкой", exc_info=True)
             text, muted = await modtools.warn(event.bot, 0, user.id, name, "автомодерация: ссылка от новичка")
             await notice(event, text, modtools.appeal_kb(user.id) if muted else None)
             return

@@ -12,6 +12,7 @@ from games.core import finish, GameDef, lobbies, Lobby, open_lobby, register
 from services import ai
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import btn, name_rows
 
 router = Router()
@@ -76,7 +77,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в игре «Кто больше» в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 

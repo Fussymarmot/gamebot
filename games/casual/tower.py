@@ -45,6 +45,7 @@ from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.premium import raw
 
 router = Router()
@@ -274,8 +275,8 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
     else:
         won = payout_of(g.stake, k, m)
     if won:
-        # Деньги раньше изменения состояния: если credit упадёт, игра останется живой и выплату можно повторить.
-        await ec.credit(g.uid, won)
+        # Уникальный ключ не даст повторно выплатить выигрыш при повторном _end.
+        await ec.credit_once(f"{KEY}:{g.token}:payout", g.uid, won)
     g.over = True
     games.pop(g.token, None)
     if by_user.get(g.uid) == g.token:
@@ -286,6 +287,7 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
     try:
         balance = (await ec.wallet(g.uid))[0]
     except Exception:
+        logger.exception("Не удалось получить баланс игрока %s после игры в башню", g.uid)
         balance = 0
     bal = f"Баланс: <b>{balance}</b> {RUBY}"
     info = f"Мин в ряду: до <b>{m}</b> · пройдено этажей: <b>{k}</b> из {FLOORS}"
@@ -318,12 +320,12 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
         try:
             await g.bot.send_message(g.chat_id, text, reply_markup=markup)
         except Exception:
-            pass
+            logger.debug("Не удалось отправить итог башни в чат %s", g.chat_id, exc_info=True)
     if result:
         try:
             await add_game_result(g.uid, KEY, result)
         except Exception:
-            pass
+            logger.exception("Не удалось записать результат башни для игрока %s", g.uid)
 
 
 async def _check(chat_id: int, user) -> Optional[str]:

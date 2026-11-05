@@ -3,6 +3,7 @@ from typing import Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from utils.emoji import CHAR_IDS, EMOJI
+from utils.logs import logger
 
 ICONS_ENABLED = False
 
@@ -76,12 +77,12 @@ async def probe_icons(bot) -> bool:
         try:
             await m.delete()
         except Exception:
-            pass
+            logger.debug("Не удалось удалить проверочное сообщение иконок", exc_info=True)
         set_icons(True)
         return True
     except TelegramBadRequest:
         pass
     except Exception:
-        pass
+        logger.debug("Не удалось проверить поддержку иконок", exc_info=True)
     set_icons(False)
     return False

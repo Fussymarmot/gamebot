@@ -9,6 +9,7 @@ from games import pause
 from games.core import finish, GameDef, InGame, lobbies, Lobby, open_lobby, record_results, register
 from utils.emoji import e
 from utils.fmt import code, esc
+from utils.logs import logger
 
 router = Router()
 KEY = "code"
@@ -52,7 +53,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в игре «Взломай код» в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 

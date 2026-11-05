@@ -32,6 +32,7 @@ from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.premium import raw
 from utils.ui import kb
 
@@ -218,26 +219,30 @@ async def play(bot, chat_id: int, user, key: str, stake: int) -> Optional[str]:
     if err:
         return err
     busy.add(user.id)
+    debited = settled = False
     try:
         # Ставка списывается сразу и только если рубины есть: повторное нажатие не потратит её дважды.
         if not await ec.debit(user.id, stake):
             busy.discard(user.id)
             return "У тебя не хватает рубинов на такую ставку."
+        debited = True
         try:
             dice = await bot.send_dice(chat_id, emoji=cfg.icon)
             value = dice.dice.value
         except (TelegramAPIError, AttributeError):
             await asyncio.shield(ec.credit(user.id, stake))
+            settled = True                # ставка возвращена, повторно не возвращаем
             busy.discard(user.id)
             return "Не удалось сделать бросок, ставка возвращена."
-        except BaseException:
-            await asyncio.shield(ec.credit(user.id, stake))
-            raise
         throw = evaluate(key, user.id, value)
         won = payout(stake, throw.coef)
         if won:
             await asyncio.shield(ec.credit(user.id, won))
+        settled = True
     except BaseException:
+        # Любая ошибка после списания, но до расчёта, возвращает ставку: игрок не теряет рубины молча.
+        if debited and not settled:
+            await asyncio.shield(ec.credit(user.id, stake))
         busy.discard(user.id)
         raise
     asyncio.create_task(_finish(bot, chat_id, user, cfg, stake, dice, throw, won))
@@ -285,7 +290,7 @@ async def _finish(bot, chat_id: int, user, cfg: Arcade, stake: int, dice: Messag
             await bot.send_message(chat_id, text, reply_markup=markup)
         await add_game_result(uid, cfg.key, result)
     except Exception:
-        pass
+        logger.exception("Ошибка завершения аркады %s у игрока %s", cfg.key, uid)
     finally:
         busy.discard(uid)
 
@@ -398,28 +403,32 @@ async def spin_slot(bot, chat_id: int, user, stake: int) -> Optional[str]:
     if err:
         return err
     busy.add(user.id)
+    debited = settled = False
     try:
         # Ставка списывается сразу и только если рубины есть: повторное нажатие или другая игра не потратят её дважды.
         if not await ec.debit(user.id, stake):
             busy.discard(user.id)
             return "У тебя не хватает рубинов на такую ставку."
+        debited = True
         try:
             dice = await bot.send_dice(chat_id, emoji="🎰")
             value = dice.dice.value
         except (TelegramAPIError, AttributeError):
             await asyncio.shield(ec.credit(user.id, stake))
+            settled = True                # ставка возвращена, повторно не возвращаем
             busy.discard(user.id)
             return "Не удалось запустить автомат, ставка возвращена."
-        except BaseException:
-            await asyncio.shield(ec.credit(user.id, stake))
-            raise
         reels = slot_decode(value)
         result = slot_result_of(reels)
         coef = slot_coef_of(reels)
         won = slot_payout(result, stake, coef)
         if won:
             await asyncio.shield(ec.credit(user.id, won))
+        settled = True
     except BaseException:
+        # Любая ошибка после списания, но до расчёта, возвращает ставку: игрок не теряет рубины молча.
+        if debited and not settled:
+            await asyncio.shield(ec.credit(user.id, stake))
         busy.discard(user.id)
         raise
     asyncio.create_task(_slot_finish(bot, chat_id, user, stake, dice, result, coef, reels))
@@ -452,7 +461,7 @@ async def _slot_finish(bot, chat_id: int, user, stake: int, dice: Message, resul
             await bot.send_message(chat_id, text, reply_markup=markup)
         await add_game_result(uid, SLOT_KEY, result)
     except Exception:
-        pass
+        logger.exception("Ошибка завершения слотов у игрока %s", uid)
     finally:
         busy.discard(uid)
 

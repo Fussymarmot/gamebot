@@ -20,14 +20,15 @@ from aiogram.types import CallbackQuery, Message
 
 from config import ADMIN_ID, GROUP_ID
 from database import game_stats
-from database.core import x
 from database.moderation import is_user_banned
 from games import pause
 from games.core import can_dm
+from games import invites
 from games.invites import hold, release
 from services import economy as ec
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import kb
 
 router = Router()
@@ -163,10 +164,11 @@ async def _expire(cid: str):
 async def _launch(msg: Message, c: dict):
     """Соперник найден: проверяем ставку и сразу запускаем партию."""
     cid, a, b = c["id"], c["creator"], c["joiner"]
+    ref = f"duel:{cid}"
     if c["stake"]:
-        for uid in (a, b):
-            if (await ec.wallet(uid))[0] >= c["stake"]:
-                continue
+        # Ставки обоих списываются сразу и атомарно (все или никто)
+        if not await ec.escrow_hold(ref, {a: c["stake"], b: c["stake"]}, strict=True):
+            uid = a if (await ec.wallet(a))[0] < c["stake"] else b
             if uid == b:
                 poor_name = c["jname"]
                 release(b)
@@ -182,9 +184,10 @@ async def _launch(msg: Message, c: dict):
                     pass
             return
     if challenges.pop(cid, None) is not c:
+        await ec.escrow_refund(ref)
         return
-    stakes[a] = {"game": c["key"], "opp": b, "stake": c["stake"], "bot": msg.bot, "chat_id": msg.chat.id}
-    stakes[b] = {"game": c["key"], "opp": a, "stake": c["stake"], "bot": msg.bot, "chat_id": msg.chat.id}
+    stakes[a] = {"game": c["key"], "opp": b, "stake": c["stake"], "ref": ref, "bot": msg.bot, "chat_id": msg.chat.id}
+    stakes[b] = {"game": c["key"], "opp": a, "stake": c["stake"], "ref": ref, "bot": msg.bot, "chat_id": msg.chat.id}
     try:
         await msg.edit_text(text(c, "<b>Игра началась!</b>"))
     except TelegramAPIError:
@@ -192,9 +195,11 @@ async def _launch(msg: Message, c: dict):
     try:
         await c["start"](msg, a, c["cname"], b, c["jname"])
     except Exception:
+        logger.exception("Не удалось запустить дуэль %s", c.get("key"))
         release(a, b)
         stakes.pop(a, None)
         stakes.pop(b, None)
+        await ec.escrow_refund(ref)
         await msg.answer("⚠️ Не удалось запустить игру.")
 
 
@@ -250,25 +255,57 @@ async def challenge_cb(cb: CallbackQuery):
         await cb.answer()
 
 
+GRACE_SEC = 30
+_bg: set = set()
+
+
+async def _late_refund(ref: str):
+    """Страховка: игра закончилась (игроки освобождены), а результата так и не было (таймаут, сбой, отмена)."""
+    await asyncio.sleep(GRACE_SEC)
+    for u in [u for u, e in stakes.items() if e.get("ref") == ref]:
+        stakes.pop(u, None)
+    await ec.escrow_refund(ref)
+
+
+def _on_release(ids):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:      # синхронный вызов вне event loop (например, из теста)
+        return
+    for ref in {stakes[u]["ref"] for u in ids if u in stakes and stakes[u].get("ref")}:
+        t = loop.create_task(_late_refund(ref))
+        _bg.add(t)
+        t.add_done_callback(_bg.discard)
+
+
+if _on_release not in invites.RELEASE_HOOKS:
+    invites.RELEASE_HOOKS.append(_on_release)
+
+
 async def stake_hook(user_id: int, game_type: str, result: str):
-    """Победитель забирает ставку у проигравшего (сколько есть на балансе)."""
+    """Победитель забирает эскроу (обе ставки), при ничьей ставки возвращаются. Идемпотентно."""
     entry = stakes.get(user_id)
     if not entry or entry["game"] != game_type:
         return
     stakes.pop(user_id, None)
-    if result != "win" or not entry["stake"]:
+    ref = entry.get("ref")
+    if not ref or not entry["stake"]:
         return
-    loser = entry["opp"]
-    pay = min(entry["stake"], (await ec.wallet(loser))[0])
-    if pay:
-        await ec.ensure(user_id)
-        await x("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (pay, loser))
-        await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (pay, user_id))
+    if result == "draw":
+        await ec.escrow_refund(ref)
+        return
+    if result != "win":
+        return
+    held = await ec.escrow_get(ref)
+    total = sum(held.values())
+    if not total or await ec.escrow_payout(ref, {user_id: total}) is None:
+        return
+    pay = total - held.get(user_id, 0)
     try:
         await entry["bot"].send_message(
             entry["chat_id"], f"💰 Ставка: победитель получает <b>{pay}</b> ♦️")
     except Exception:
-        pass
+        logger.exception("Не удалось сообщить о выплате ставки в чат %s", entry["chat_id"])
 
 
 if stake_hook not in game_stats.RESULT_HOOKS:

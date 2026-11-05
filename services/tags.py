@@ -6,6 +6,7 @@ from aiogram.methods import TelegramMethod
 
 from config import GROUP_ID
 from database.core import DB_PATH
+from utils.logs import logger
 
 
 perm_cache: Dict[int, str] = {}
@@ -42,4 +43,4 @@ async def enforce(bot: Bot, user_id: int, current: Optional[str]):
     try:
         await set_member_tag(bot, user_id, expected)
     except Exception:
-        pass
+        logger.warning("Не удалось привести тег игрока %s в порядок", user_id, exc_info=True)

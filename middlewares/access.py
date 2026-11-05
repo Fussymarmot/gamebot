@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from config import GROUP_ID
 from database.users import register_private_user
 from services import members
+from utils.logs import logger
 
 
 class GroupCheckMiddleware(BaseMiddleware):
@@ -26,7 +27,7 @@ class GroupCheckMiddleware(BaseMiddleware):
         try:
             await event.bot.leave_chat(chat.id)
         except Exception:
-            pass
+            logger.warning("Не удалось выйти из постороннего чата %s", chat.id, exc_info=True)
         return
 
 
@@ -45,5 +46,5 @@ class CallbackGuardMiddleware(BaseMiddleware):
         try:
             await event.answer()
         except Exception:
-            pass
+            logger.debug("Не удалось ответить на запрос постороннего пользователя", exc_info=True)
         return

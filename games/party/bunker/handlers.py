@@ -15,6 +15,7 @@ from games.core import finish, GameDef, lobbies, Lobby, open_lobby, record_resul
 from services import ai
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import btn, name_rows
 
 router = Router()
@@ -128,7 +129,7 @@ async def run(lobby: Lobby):
             try:
                 await msg.edit_text(card_text(g, uid))
             except Exception:
-                pass
+                logger.debug("Не удалось обновить карточку бункера игрока %s", uid, exc_info=True)
         await edit_main(lobby, f"🛡 <b>Двери бункера закрыты!</b>\n\n{status(g)}\n\n<i>Впереди {DAYS} дней, "
                                f"каждый длится {DAY_SEC} секунд.</i>")
         await pause.sleep(6)
@@ -152,10 +153,11 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
+        logger.exception("Ошибка в игре «Бункер» в чате %s", lobby.chat_id)
         try:
             await bot.send_message(lobby.chat_id, "⚠️ В игре произошла ошибка, игра остановлена.")
         except Exception:
-            pass
+            logger.debug("Не удалось сообщить об ошибке бункера в чат %s", lobby.chat_id, exc_info=True)
     finally:
         finish(lobby)
 

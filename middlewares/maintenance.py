@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery
 
 from config import ADMIN_ID, GROUP_ID
 from services import maintenance
+from utils.logs import logger
 
 _notice_at: Dict[Any, float] = {}
 
@@ -23,7 +24,7 @@ class MaintenanceMiddleware(BaseMiddleware):
             try:
                 await event.answer(maintenance.notice(short=True)[:190], show_alert=True)
             except Exception:
-                pass
+                logger.debug("Не удалось показать уведомление о техработах", exc_info=True)
             return
         in_group = event.chat.id == GROUP_ID
         if in_group and not (event.text and event.text.startswith("/")):

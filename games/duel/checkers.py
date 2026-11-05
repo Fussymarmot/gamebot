@@ -12,6 +12,7 @@ from games.invites import release
 from utils import richui
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 games = {}
@@ -253,7 +254,7 @@ async def _watch(gid):
             try:
                 await render(_bot_ref[0], gid, g)
             except Exception:
-                pass
+                logger.debug("Не удалось показать таймаут шашек %s", gid, exc_info=True)
             return
 
 
@@ -275,7 +276,7 @@ async def _finish(cb, gid, g, winner, note=""):
             try:
                 await add_game_result(u, KEY, r)
             except Exception:
-                pass
+                logger.exception("Не удалось записать результат шашек для игрока %s", u)
 
 
 @router.callback_query(F.data.startswith("ck:"))

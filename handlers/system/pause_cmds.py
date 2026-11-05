@@ -4,6 +4,7 @@ from aiogram.types import CallbackQuery, Message
 
 from config import ADMIN_ID, GROUP_ID
 from games import core as games_core, pause
+from utils.logs import logger
 from utils.ui import kb
 
 router = Router()
@@ -21,6 +22,7 @@ async def do_pause(bot):
     try:
         pause.state["msg"] = await bot.send_message(GROUP_ID, text, reply_markup=resume_markup())
     except Exception:
+        logger.warning("Не удалось объявить паузу игр", exc_info=True)
         pause.state["msg"] = None
 
 
@@ -36,11 +38,11 @@ async def do_resume(bot):
             await msg.edit_text(text)
             return
         except Exception:
-            pass
+            logger.debug("Не удалось отредактировать сообщение паузы", exc_info=True)
     try:
         await bot.send_message(GROUP_ID, text)
     except Exception:
-        pass
+        logger.debug("Не удалось отправить сообщение о снятии паузы", exc_info=True)
 
 
 @router.message(Command("pause"))

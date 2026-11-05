@@ -11,6 +11,7 @@ from aiogram.types import Update
 
 from config import GROUP_ID
 from services import members
+from utils.logs import logger
 
 
 
@@ -44,5 +45,5 @@ class RegisterMiddleware(BaseMiddleware):
         try:
             await register_update(event, data)
         except Exception:
-            pass
+            logger.exception("Не удалось зарегистрировать обновление в базе")
         return await handler(event, data)

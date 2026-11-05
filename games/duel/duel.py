@@ -11,6 +11,7 @@ from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 games = {}
@@ -56,14 +57,14 @@ async def start_duel(msg, p1, n1, p2, n2):
         try:
             await d.msg.edit_text(d.text(), reply_markup=d.kb(gid))
         except Exception:
-            pass
+            logger.debug("Не удалось обновить доску дуэли %s", gid, exc_info=True)
     await asyncio.sleep(60)
     if gid in games:
         _finish(gid)
         try:
             await d.msg.edit_text(d.head() + "<i>Никто не нажал. Дуэль отменена.</i>")
         except Exception:
-            pass
+            logger.debug("Не удалось показать отмену дуэли %s", gid, exc_info=True)
 
 
 register_duel("duel", "Дуэль на скорость", "swords", start_duel)
@@ -95,16 +96,23 @@ async def duel_cb(cb: CallbackQuery):
         me_name, other_id, other_name = (d.n1, d.p2, d.n2) if uid == d.p1 else (d.n2, d.p1, d.n1)
         if kind == "early" or d.state == "waiting":
             _finish(gid)
-            await add_game_result(other_id, "duel", "win")
-            await add_game_result(uid, "duel", "loss")
-            await cb.message.edit_text(
-                d.head() + f"{e('cross')} <b>{esc(me_name)}</b> фальстартовал!\n"
-                           f"{e('party')} Победа: <b>{esc(other_name)}</b>!")
-            await cb.answer("Фальстарт!", show_alert=True)
-            return
-        _finish(gid)
-        d.state = "done"
-        await add_game_result(uid, "duel", "win")
-        await add_game_result(other_id, "duel", "loss")
-        await cb.message.edit_text(d.head() + f"{e('party')} <b>Победа: {esc(me_name)}!</b>")
-        await cb.answer()
+            text = (d.head() + f"{e('cross')} <b>{esc(me_name)}</b> фальстартовал!\n"
+                    f"{e('party')} Победа: <b>{esc(other_name)}</b>!")
+            results = [(other_id, "win"), (uid, "loss")]
+            alert = ("Фальстарт!", True)
+        else:
+            _finish(gid)
+            d.state = "done"
+            text = d.head() + f"{e('party')} <b>Победа: {esc(me_name)}!</b>"
+            results = [(uid, "win"), (other_id, "loss")]
+            alert = (None, False)
+        # Сначала показываем итог, потом начисляем награды: сбой экономики не должен «подвесить» дуэль.
+        try:
+            await cb.message.edit_text(text)
+        finally:
+            for u, r in results:
+                try:
+                    await add_game_result(u, "duel", r)
+                except Exception:
+                    logger.exception("Не удалось записать результат дуэли для игрока %s", u)
+            await cb.answer(*alert)

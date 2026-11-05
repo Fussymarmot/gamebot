@@ -11,6 +11,7 @@ from database.moderation import log_mod
 from services import economy as ec, giveaways as gw, shop as shop_core, tags
 from utils import titles
 from utils.fmt import esc, plain, rich
+from utils.logs import logger
 from utils.timeutils import now, parse_ts, ts
 from utils.ui import kb
 
@@ -131,6 +132,9 @@ async def cmd_mytag(message: Message):
         await message.answer(f"❌ Не хватает рубинов: нужно {cost}.")
         return
     oid = await shop_core.create_order(uid, "tag", f"Тег «{clean}»", clean, cost, shop_core.tag_expiry())
+    if oid is None:
+        await message.answer(f"❌ Не хватает рубинов: нужно {cost}.")
+        return
     name = message.from_user.first_name or "Игрок"
     await message.bot.send_message(
         ADMIN_ID, f"🏷 <b>Заказ тега #{oid}</b>\n\n{esc(name)}: «{esc(clean)}» на {ec.TAG_DAYS} дней",
@@ -159,6 +163,9 @@ async def order_cb(cb: CallbackQuery):
             approve = False
             note = f" (не удалось поставить тег: {ex})"
     res = await shop_core.settle(oid, approve)
+    if res is None:     # заказ уже обработало параллельное нажатие
+        await cb.answer("Заказ уже обработан", show_alert=True)
+        return
     if approve and kind == "title":
         await apply_title(uid, payload)
     name = await ec.name_of(uid)
@@ -271,5 +278,5 @@ async def shop_cb(cb: CallbackQuery):
     try:
         await cb.message.edit_text(text, reply_markup=markup)
     except Exception:
-        pass
+        logger.debug("Не удалось обновить экран магазина", exc_info=True)
     await cb.answer(alert, show_alert=bool(alert) and ("не" in alert.lower() or "нужно" in alert.lower()))

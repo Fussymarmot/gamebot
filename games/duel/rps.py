@@ -11,6 +11,7 @@ from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 games = {}
@@ -72,7 +73,7 @@ async def _watch(gid):
             try:
                 await g.msg.edit_text(g.text() + "\n\n<i>Игра закрыта по таймауту</i>")
             except Exception:
-                pass
+                logger.debug("Не удалось показать таймаут в КНБ %s", gid, exc_info=True)
             return
 
 
@@ -105,12 +106,18 @@ async def rps_cb(cb: CallbackQuery):
                f"<b>{esc(g.n1)}</b>: {EMO[g.c1]}\n<b>{esc(g.n2)}</b>: {EMO[g.c2]}\n\n")
         if g.c1 == g.c2:
             res += f"{e('sparkles')} <b>Ничья!</b>"
-            await add_game_result(g.p1, "rps", "draw")
-            await add_game_result(g.p2, "rps", "draw")
+            results = [(g.p1, "draw"), (g.p2, "draw")]
         else:
             p1_wins = BEATS[g.c1] == g.c2
             wid, wn, lid = (g.p1, g.n1, g.p2) if p1_wins else (g.p2, g.n2, g.p1)
             res += f"{e('party')} Победа: <b>{esc(wn)}</b>!"
-            await add_game_result(wid, "rps", "win")
-            await add_game_result(lid, "rps", "loss")
-        await cb.message.edit_text(res)
+            results = [(wid, "win"), (lid, "loss")]
+        # Сначала показываем итог, потом начисляем награды: сбой экономики не должен «подвесить» доску.
+        try:
+            await cb.message.edit_text(res)
+        finally:
+            for u, r in results:
+                try:
+                    await add_game_result(u, "rps", r)
+                except Exception:
+                    logger.exception("Не удалось записать результат КНБ для игрока %s", u)

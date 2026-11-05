@@ -21,7 +21,6 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from config import GROUP_ID
-from database.core import x
 from database.game_stats import add_game_result
 from database.moderation import is_user_banned
 from games import pause
@@ -167,17 +166,13 @@ async def _send_side(bot, chat_id: int, side: str):
 async def _play(cb: CallbackQuery, p: dict, pick: str):
     uid, stake, bot, chat_id = p["uid"], p["stake"], cb.bot, cb.message.chat.id
     async with locks[uid]:
-        balance = (await ec.wallet(uid))[0]
-        if balance < stake:
+        outcome = "heads" if secrets.randbelow(2) == 0 else "tails"
+        won = outcome == pick
+        # Списание и выплата одной транзакцией с условием coins >= stake: баланс не уйдёт в минус.
+        if not await ec.bet(uid, stake, stake * COEF if won else 0):
             await cb.answer("Не хватает рубинов на ставку", show_alert=True)
             await _drop(p["msg"])
             return
-        # Ставка списывается сразу: повторное нажатие или другая игра не позволят потратить её дважды.
-        await x("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (stake, uid))
-        outcome = "heads" if secrets.randbelow(2) == 0 else "tails"
-        won = outcome == pick
-        if won:
-            await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (stake * COEF, uid))
     await cb.answer("Монета в воздухе...")
 
     try:

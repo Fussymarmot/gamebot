@@ -13,6 +13,7 @@ from config import ADMIN_ID, BASE_DIR
 from database import lifecycle
 from database.core import DB_PATH
 from database.messages import flush_messages
+from utils.logs import logger
 from utils.timeutils import TZ
 
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
@@ -62,6 +63,7 @@ async def send_backup(bot: Bot, reason: str = "автоматический") ->
             caption=f"💾 Бэкап базы ({reason})\n{os.path.basename(path)}\n{size / 1024:.0f} КБ (сжатый файл)")
         return True
     except Exception:
+        logger.exception("Не удалось отправить бэкап (%s)", reason)
         return False
 
 

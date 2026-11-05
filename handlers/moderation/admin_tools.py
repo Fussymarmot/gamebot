@@ -14,6 +14,7 @@ from database.settings import get_setting
 from database.users import get_user_name
 from services import mods, modtools
 from utils.fmt import code, esc
+from utils.logs import logger
 from utils.targets import parse_target
 from utils.timeutils import now, parse_ts, ts
 from utils.ui import kb
@@ -148,7 +149,7 @@ async def cmd_report(message: Message):
         await asyncio.sleep(5)
         await note.delete()
     except Exception:
-        pass
+        logger.debug("Не удалось удалить служебную заметку", exc_info=True)
 
 
 @router.message(Command("reports"))
@@ -178,7 +179,7 @@ async def report_cb(cb: CallbackQuery):
     try:
         await cb.message.edit_text(report_text(r), reply_markup=report_kb(int(rid)) if status == "review" else None)
     except Exception:
-        pass
+        logger.debug("Не удалось обновить карточку жалобы %s", rid, exc_info=True)
     await cb.answer("Статус обновлён")
 
 

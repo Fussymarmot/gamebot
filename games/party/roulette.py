@@ -6,12 +6,12 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from database.core import x
 from games import pause
 from games.core import finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
 from games.duel.challenge import MAX_STAKE
 from services import economy as ec
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import kb
 
 router = Router()
@@ -45,7 +45,9 @@ def markup(lobby: Lobby):
 async def start_game(lobby: Lobby):
     stake = lobby.data.get("stake", 0)
     if stake:
-        poor = [u for u in lobby.players if (await ec.wallet(u))[0] < stake]
+        ref = lobby.data["escrow"] = f"lobby:{lobby.gid}"
+        held = await ec.escrow_hold(ref, {u: stake for u in lobby.players})
+        poor = [u for u in lobby.players if u not in held]
         for u in poor:
             lobby.players.pop(u, None)
         if poor and len(lobby.players) < 2:
@@ -103,28 +105,21 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в русской рулетке в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 
 
 async def settle(lobby: Lobby, winner: int) -> int:
-    stake = lobby.data.get("stake", 0)
-    if not stake:
+    """Победитель забирает эскроу (ставки всех). Возвращает выигрыш сверх своей ставки."""
+    ref = lobby.data.get("escrow")
+    if not ref:
         return 0
-    pot = 0
-    for u in lobby.players:
-        if u == winner:
-            continue
-        have = (await ec.wallet(u))[0]
-        pay = min(stake, have)
-        if pay:
-            await x("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (pay, u))
-            pot += pay
-    if pot:
-        await ec.ensure(winner)
-        await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (pot, winner))
-    return pot
+    held = await ec.escrow_get(ref)
+    total = sum(held.values())
+    if not total or await ec.escrow_payout(ref, {winner: total}) is None:
+        return 0
+    return total - held.get(winner, 0)
 
 
 @router.callback_query(F.data.startswith("ru:"))

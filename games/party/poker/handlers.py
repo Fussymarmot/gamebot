@@ -20,7 +20,6 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramRet
 from aiogram.filters import Command, Filter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from database.core import x
 from games import pause
 from games.core import dm, finish, GameDef, lobbies, Lobby, open_lobby, record_results, register
 from games.party.poker.engine import (STREET_RU, Seat, Table, card_str, describe_cards)
@@ -28,6 +27,7 @@ from services import economy as ec
 from utils import ui
 from utils.emoji import RUBY, e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 
@@ -322,8 +322,9 @@ async def start_game(lobby: Lobby):
     all_in = bool(lobby.data.get("all_in"))
     stake = lobby.data.get("stake", 0)
     if all_in:
-        balances = {u: (await ec.wallet(u))[0] for u in lobby.players}
-        poor = {u: n for u, n in balances.items() if n < 1}
+        ref = lobby.data["escrow"] = f"lobby:{lobby.gid}"
+        balances = await ec.escrow_hold(ref, {u: -1 for u in lobby.players})
+        poor = {u: n for u, n in lobby.players.items() if u not in balances}
         for u in poor:
             lobby.players.pop(u, None)
         if poor and len(lobby.players) < 2:
@@ -337,7 +338,9 @@ async def start_game(lobby: Lobby):
         stakes = {u: balances[u] for u in lobby.players}
         chips = min(stakes.values())
     elif stake:
-        poor = {u: n for u, n in lobby.players.items() if (await ec.wallet(u))[0] < stake}
+        ref = lobby.data["escrow"] = f"lobby:{lobby.gid}"
+        held = await ec.escrow_hold(ref, {u: stake for u in lobby.players})
+        poor = {u: n for u, n in lobby.players.items() if u not in held}
         for u in poor:
             lobby.players.pop(u, None)
         if poor and len(lobby.players) < 2:
@@ -503,17 +506,18 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
+        logger.exception("Ошибка в игре в покер в чате %s", lobby.chat_id)
         try:
             await bot.send_message(lobby.chat_id, "⚠️ В покере случилась ошибка, игра остановлена. Рубины не списаны.")
         except Exception:
-            pass
+            logger.debug("Не удалось сообщить об ошибке покера в чат %s", lobby.chat_id, exc_info=True)
     finally:
         if not d.get("finished"):       # игра прервана: убираем кнопки из личек, сами сообщения остаются
             d["finished"] = True
             try:
                 await refresh_dms(lobby)
             except Exception:
-                pass
+                logger.debug("Не удалось обновить личные сообщения покера", exc_info=True)
         await _delete(bot, lobby.chat_id, d.get("msg_id"))
         finish(lobby)
 
@@ -527,34 +531,22 @@ async def finish_hand(lobby: Lobby):
 
 
 async def settle(lobby: Lobby, final: Dict[int, int]) -> Dict[int, int]:
-    """Рубины по итогам игры: проигравшие отдают (сколько есть на балансе), выигравшие делят собранное."""
-    d = lobby.data
-    if not d.get("stake") and not d.get("all_in"):
+    """Эскроу: каждый получает свой итоговый стек (фишки = рубины 1:1). Разница со взносом идёт в итог."""
+    ref = lobby.data.get("escrow")
+    if not ref:
         return {}      # игра на фишки без ставки: рубины не двигаются
-    stakes = d.get("stakes") or {u: d.get("stake", 0) for u in final}
-    net = {u: v - stakes.get(u, 0) for u, v in final.items()}
-    winners = {u: v for u, v in net.items() if v > 0}
-    if not winners:
+    held = await ec.escrow_get(ref)
+    if not held:
         return {}
-    delta, collected = {}, 0
-    for u, v in net.items():
-        if v >= 0:
-            continue
-        pay = min(-v, (await ec.wallet(u))[0])
-        if pay:
-            await x("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (pay, u))
-            collected += pay
-            delta[u] = -pay
-    total, given = sum(winners.values()), 0
-    ranked = sorted(winners.items(), key=lambda kv: -kv[1])
-    for i, (u, v) in enumerate(ranked):
-        share = collected - given if i == len(ranked) - 1 else collected * v // total
-        given += share
-        if share:
-            await ec.ensure(u)
-            await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (share, u))
-            delta[u] = share
-    return delta
+    payouts = {u: final.get(u, 0) for u in held}
+    try:
+        paid = await ec.escrow_payout(ref, payouts)
+    except ValueError:      # стеки не сходятся с банком: возвращаем взносы, ничего не теряем
+        await ec.escrow_refund(ref)
+        return {}
+    if paid is None:
+        return {}
+    return {u: paid.get(u, 0) - held[u] for u in held if paid.get(u, 0) != held[u]}
 
 
 async def finish_game(lobby: Lobby):

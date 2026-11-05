@@ -11,6 +11,7 @@ from games.duel.challenge import open_challenge, register_duel
 from games.invites import release
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 games = {}
@@ -93,7 +94,7 @@ async def _watch(gid):
             try:
                 await g.msg.edit_text(g.text() + "\n\n<i>Игра закрыта по таймауту</i>")
             except Exception:
-                pass
+                logger.debug("Не удалось показать таймаут крестиков-ноликов %s", gid, exc_info=True)
             return
 
 
@@ -140,5 +141,5 @@ async def ttt_cb(cb: CallbackQuery):
                 try:
                     await add_game_result(u, "ttt", r)
                 except Exception:
-                    pass
+                    logger.exception("Не удалось записать результат крестиков-ноликов для игрока %s", u)
         await cb.answer()

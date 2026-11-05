@@ -3,9 +3,10 @@ from datetime import timedelta
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from database import game_stats, settings as db_settings
-from database.core import batch, q, tx, x
+from database.core import q, tx, x
 from database.settings import get_setting
 from utils.fmt import plain
+from utils.logs import logger
 from utils.timeutils import now, parse_ts, ts
 
 
@@ -129,6 +130,141 @@ async def credit(uid: int, amount: int):
         await x("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, uid))
 
 
+async def credit_once(operation_id: str, uid: int, amount: int) -> bool:
+    """Идемпотентная выплата: повтор с тем же operation_id не начисляет рубины снова.
+
+    Запись ключа операции и изменение кошелька фиксируются одной транзакцией.
+    Возвращает True только если выплата была проведена этим вызовом.
+    """
+    if not operation_id or amount <= 0:
+        return False
+    async with tx() as t:
+        await t.execute(_ENSURE, (uid,))
+        inserted = await t.execute(
+            "INSERT OR IGNORE INTO balance_operations (operation_id, user_id, amount) VALUES (?,?,?)",
+            (operation_id, uid, amount),
+        )
+        if inserted != 1:
+            return False
+        await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amount, uid))
+    return True
+
+
+# ---------- эскроу: ставки игр на нескольких игроков ----------
+# Ставка списывается при старте и лежит в таблице escrow, пока игра идёт. Выплата и возврат идут
+# одной транзакцией и идемпотентны: рассчитанная партия (строк в escrow уже нет) повторно не платит.
+
+class _EscrowFail(Exception):
+    pass
+
+
+async def escrow_hold(ref: str, amounts: Dict[int, int], strict: bool = False) -> Dict[int, int]:
+    """Списывает ставки и кладёт их в эскроу. amounts: {uid: ставка}, -1 = весь баланс.
+    Возвращает {uid: удержано}; кого не удалось списать, в результате нет. strict: либо все, либо никто ({})."""
+    held: Dict[int, int] = {}
+    try:
+        async with tx() as t:
+            for uid, amt in amounts.items():
+                await t.execute(_ENSURE, (uid,))
+                if amt < 0:
+                    row = await t.fetchone("SELECT coins FROM wallets WHERE user_id=?", (uid,))
+                    amt = row[0] if row else 0
+                if amt <= 0 or await t.execute(_SPEND, (amt, uid, amt)) != 1:
+                    if strict:
+                        raise _EscrowFail()
+                    continue
+                await t.execute("INSERT INTO escrow (ref, user_id, amount) VALUES (?,?,?) "
+                                "ON CONFLICT(ref, user_id) DO UPDATE SET amount = amount + excluded.amount",
+                                (ref, uid, amt))
+                held[uid] = amt
+    except _EscrowFail:
+        return {}
+    return held
+
+
+async def escrow_get(ref: str) -> Dict[int, int]:
+    return {r[0]: r[1] for r in await q("SELECT user_id, amount FROM escrow WHERE ref=?", (ref,))}
+
+
+async def escrow_refund(ref: str) -> Dict[int, int]:
+    """Возвращает всё, что осталось в эскроу ref. Если уже рассчитано или возвращено, ничего не делает."""
+    async with tx() as t:
+        rows = await t.fetchall("SELECT user_id, amount FROM escrow WHERE ref=?", (ref,))
+        for uid, amt in rows:
+            await t.execute(_ENSURE, (uid,))
+            await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (amt, uid))
+        if rows:
+            await t.execute("DELETE FROM escrow WHERE ref=?", (ref,))
+    return {u: a for u, a in rows}
+
+
+async def escrow_payout(ref: str, payouts: Dict[int, int]) -> Optional[Dict[int, int]]:
+    """Раздаёт эскроу ref одной транзакцией. None, если ref уже рассчитан. Сумма выплат не может
+    превышать банк; недораспределённый остаток возвращается внёсшим пропорционально взносам."""
+    async with tx() as t:
+        rows = await t.fetchall("SELECT user_id, amount FROM escrow WHERE ref=?", (ref,))
+        if not rows:
+            return None
+        total = sum(a for _, a in rows)
+        pay = {u: v for u, v in payouts.items() if v > 0}
+        left = total - sum(pay.values())
+        if left < 0:
+            raise ValueError("выплаты превышают банк эскроу")
+        if left:
+            given = 0
+            for uid, amt in rows:
+                part = left * amt // total
+                pay[uid] = pay.get(uid, 0) + part
+                given += part
+            pay[rows[0][0]] += left - given
+        for uid, v in pay.items():
+            await t.execute(_ENSURE, (uid,))
+            await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (v, uid))
+        await t.execute("DELETE FROM escrow WHERE ref=?", (ref,))
+    return pay
+
+
+async def escrow_recover() -> int:
+    """На старте: игры в памяти не переживают перезапуск, значит всё, что осталось в эскроу, возвращаем."""
+    n = 0
+    for (ref,) in await q("SELECT DISTINCT ref FROM escrow"):
+        n += len(await escrow_refund(ref))
+    return n
+
+
+def escrow_refund_bg(ref: str):
+    """Возврат из синхронного кода (finish): запускает задачу и держит на неё ссылку."""
+    try:
+        t = asyncio.get_running_loop().create_task(escrow_refund(ref))
+    except RuntimeError:
+        return
+    _bg.add(t)
+    t.add_done_callback(_bg_done)
+
+
+def _bg_done(t: asyncio.Task):
+    _bg.discard(t)
+    if t.cancelled():
+        return
+    exc = t.exception()
+    if exc:
+        logger.error("Фоновый возврат эскроу не удался", exc_info=exc)
+
+
+_bg: set = set()
+
+
+async def bet(uid: int, stake: int, payout: int) -> bool:
+    """Ставка одиночной игры: списание и выплата одной транзакцией. False, если рубинов не хватает."""
+    async with tx() as t:
+        await t.execute(_ENSURE, (uid,))
+        if await t.execute(_SPEND, (stake, uid, stake)) != 1:
+            return False
+        if payout > 0:
+            await t.execute("UPDATE wallets SET coins = coins + ? WHERE user_id=?", (payout, uid))
+    return True
+
+
 async def name_of(uid: int) -> str:
     r = await q("SELECT username, first_name FROM users WHERE user_id=?", (uid,), one=True)
     if r and r[0]:
@@ -141,7 +277,7 @@ async def say(text: str):
         try:
             await announce(text)
         except Exception:
-            pass
+            logger.exception("Не удалось отправить анонс экономики")
 
 
 async def progress(uid: int, day: str):
@@ -158,58 +294,66 @@ async def progress(uid: int, day: str):
 
 async def process(uid: int, game: Optional[str] = None, result: Optional[str] = None):
     day = now().strftime("%Y-%m-%d")
-    coins, total, title, last = await wallet(uid)
-    p = await progress(uid, day)
-    rows = {r[0]: (r[1], r[2]) for r in await q(
-        "SELECT task, progress, done FROM daily_tasks WHERE user_id=? AND day=?", (uid, day))}
-    earned = rows.get("_earned", (0, 0))[0]
-    gain, stmts, lines = 0, [], []
-    if game and result:
-        ok = True
-        if last and (now() - parse_ts(last)).total_seconds() < COOLDOWN_SEC:
-            ok = False
-        if ok:
-            base = WIN_BONUS.get(game, REWARD["win"]) if result == "win" else REWARD[result]
-            amount = max(0, min(reward(base), daily_cap() - earned))
-            if amount:
-                gain += amount
-                stmts.append(("""INSERT INTO daily_tasks (user_id, day, task, progress, done) VALUES (?,?, '_earned', ?, 0)
-                                 ON CONFLICT(user_id, day, task) DO UPDATE SET progress = progress + excluded.progress""",
-                              (uid, day, amount)))
-                stmts.append(("UPDATE wallets SET last_reward=? WHERE user_id=?", (ts(), uid)))
-    values = {"play3": p["t_games"], "win1": p["t_wins"], "try2": p["t_kinds"]}
-    for key, (name, goal, base) in TASKS.items():
-        prog = min(values[key], goal)
-        was = bool(rows.get(key, (0, 0))[1])
-        done = prog >= goal
-        stmts.append(("""INSERT INTO daily_tasks (user_id, day, task, progress, done) VALUES (?,?,?,?,?)
-                         ON CONFLICT(user_id, day, task) DO UPDATE SET progress=excluded.progress, done=excluded.done""",
-                      (uid, day, key, prog, 1 if (done or was) else 0)))
-        if done and not was:
-            gain += reward(base)
-            lines.append(f"📅 {{n}} выполнил(а) задание «{name}» и получает {reward(base)} рубинов!")
-    have = {r[0] for r in await q("SELECT key FROM achievements WHERE user_id=?", (uid,))}
-    cond = {
-        "first_win": p["wins"] >= 1, "veteran": p["games"] >= 50, "champion": p["wins"] >= 10,
-        "streak5": len(p["last5"]) == 5 and all(r == "win" for r in p["last5"]),
-        "explorer": p["kinds"] >= 5, "regular": p["days"] >= 7, "rich": coins + gain >= 300,
-    }
-    for key, ok in cond.items():
-        if ok and key not in have:
-            name, _, base = ACHIEVEMENTS[key]
-            stmts.append(("INSERT OR IGNORE INTO achievements (user_id, key, earned_at) VALUES (?,?,?)", (uid, key, ts())))
-            gain += reward(base)
-            lines.append(f"🏆 {{n}} получил(а) достижение «{name}»! (+{reward(base)} рубинов)")
-    if gain:
-        stmts.append(("UPDATE wallets SET coins = coins + ?, total_earned = total_earned + ? WHERE user_id=?",
-                      (gain, gain, uid)))
-    if stmts:
-        await batch(stmts)
+    lines = []
+    # Кулдаун, дневной лимит, задания и достижения проверяются и пишутся в одной транзакции:
+    # два одновременных результата не выдадут награду дважды.
+    async with tx() as t:
+        coins, total, title, last = await wallet(uid)
+        p = await progress(uid, day)
+        rows = {r[0]: (r[1], r[2]) for r in await q(
+            "SELECT task, progress, done FROM daily_tasks WHERE user_id=? AND day=?", (uid, day))}
+        earned = rows.get("_earned", (0, 0))[0]
+        gain, stmts = 0, []
+        if game and result:
+            ok = True
+            if last and (now() - parse_ts(last)).total_seconds() < COOLDOWN_SEC:
+                ok = False
+            if ok:
+                base = WIN_BONUS.get(game, REWARD["win"]) if result == "win" else REWARD[result]
+                amount = max(0, min(reward(base), daily_cap() - earned))
+                if amount:
+                    gain += amount
+                    stmts.append(("""INSERT INTO daily_tasks (user_id, day, task, progress, done) VALUES (?,?, '_earned', ?, 0)
+                                     ON CONFLICT(user_id, day, task) DO UPDATE SET progress = progress + excluded.progress""",
+                                  (uid, day, amount)))
+                    stmts.append(("UPDATE wallets SET last_reward=? WHERE user_id=?", (ts(), uid)))
+        values = {"play3": p["t_games"], "win1": p["t_wins"], "try2": p["t_kinds"]}
+        for key, (name, goal, base) in TASKS.items():
+            prog = min(values[key], goal)
+            was = bool(rows.get(key, (0, 0))[1])
+            done = prog >= goal
+            stmts.append(("""INSERT INTO daily_tasks (user_id, day, task, progress, done) VALUES (?,?,?,?,?)
+                             ON CONFLICT(user_id, day, task) DO UPDATE SET progress=excluded.progress, done=excluded.done""",
+                          (uid, day, key, prog, 1 if (done or was) else 0)))
+            if done and not was:
+                gain += reward(base)
+                lines.append(f"📅 {{n}} выполнил(а) задание «{name}» и получает {reward(base)} рубинов!")
+        have = {r[0] for r in await q("SELECT key FROM achievements WHERE user_id=?", (uid,))}
+        cond = {
+            "first_win": p["wins"] >= 1, "veteran": p["games"] >= 50, "champion": p["wins"] >= 10,
+            "streak5": len(p["last5"]) == 5 and all(r == "win" for r in p["last5"]),
+            "explorer": p["kinds"] >= 5, "regular": p["days"] >= 7, "rich": coins + gain >= 300,
+        }
+        for key, ok in cond.items():
+            if ok and key not in have:
+                name, _, base = ACHIEVEMENTS[key]
+                # Важен результат INSERT OR IGNORE: награда только за реально новое достижение.
+                inserted = await t.execute(
+                    "INSERT OR IGNORE INTO achievements (user_id, key, earned_at) VALUES (?,?,?)", (uid, key, ts()))
+                if inserted:
+                    gain += reward(base)
+                    lines.append(f"🏆 {{n}} получил(а) достижение «{name}»! (+{reward(base)} рубинов)")
+        if gain:
+            stmts.append(("UPDATE wallets SET coins = coins + ?, total_earned = total_earned + ? WHERE user_id=?",
+                          (gain, gain, uid)))
+        for sql, params in stmts:
+            await t.execute(sql, params)
+        task_state = [(TASKS[k][0], min(values[k], TASKS[k][1]), TASKS[k][1],
+                       bool(rows.get(k, (0, 0))[1]) or values[k] >= TASKS[k][1]) for k in TASKS]
     if lines:
         who = await name_of(uid)
         await say("\n".join(l.format(n=who) for l in lines))
-    return [(TASKS[k][0], min(values[k], TASKS[k][1]), TASKS[k][1],
-             bool(rows.get(k, (0, 0))[1]) or values[k] >= TASKS[k][1]) for k in TASKS]
+    return task_state
 
 
 async def on_result(uid: int, game: str, result: str):
@@ -260,15 +404,19 @@ async def owned(uid: int) -> List[str]:
 async def buy(uid: int, key: str) -> Tuple[bool, str]:
     if key not in SHOP:
         return False, "Такого товара нет."
-    if key in await owned(uid):
-        return False, "Это уже куплено."
     title, base = SHOP[key]
     cost = price(base)
-    coins = (await wallet(uid))[0]
-    if coins < cost:
-        return False, f"Не хватает рубинов: нужно {cost}, у тебя {coins}."
-    await batch([("UPDATE wallets SET coins = coins - ? WHERE user_id=?", (cost, uid)),
-                 ("INSERT INTO purchases (user_id, item, bought_at) VALUES (?,?,?)", (uid, key, ts()))])
+    # Проверка «уже куплено» и списание — в одной транзакции с условием coins >= cost:
+    # два одновременных нажатия не купят титул дважды и не уведут баланс в минус.
+    async with tx() as t:
+        await t.execute(_ENSURE, (uid,))
+        if await t.fetchone("SELECT 1 FROM purchases WHERE user_id=? AND item=?", (uid, key)):
+            return False, "Это уже куплено."
+        if await t.execute(_SPEND, (cost, uid, cost)) != 1:
+            row = await t.fetchone("SELECT coins FROM wallets WHERE user_id=?", (uid,))
+            coins = row[0] if row else 0
+            return False, f"Не хватает рубинов: нужно {cost}, у тебя {coins}."
+        await t.execute("INSERT INTO purchases (user_id, item, bought_at) VALUES (?,?,?)", (uid, key, ts()))
     return True, f"Куплено: {plain(title)}!"
 
 

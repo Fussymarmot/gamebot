@@ -15,6 +15,7 @@ from games.content import wordseek_words
 from games.core import finish, GameDef, InGame, lobbies, Lobby, open_lobby, record_results, register
 from services import ai
 from utils.fmt import esc
+from utils.logs import logger
 from utils.timeutils import now
 
 router = Router()
@@ -91,7 +92,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в игре WordSeek в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 

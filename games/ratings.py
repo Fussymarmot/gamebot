@@ -8,6 +8,7 @@ from database.settings import get_setting
 from services import features
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.ui import kb
 
 router = Router()
@@ -91,5 +92,5 @@ async def top_games_cb(cb: CallbackQuery):
         try:
             await cb.message.edit_text(await rating_text(key), reply_markup=rating_kb(key))
         except Exception:
-            pass
+            logger.debug("Не удалось показать рейтинг %s", key, exc_info=True)
     await cb.answer()

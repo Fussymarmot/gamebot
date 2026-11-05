@@ -12,17 +12,20 @@ from handlers.admin.common import BACK, CANCEL, panel, S, show
 from services import backup
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 from utils.targets import parse_free
 from utils.ui import kb
 
 
 ACTIONS = {
     "coins_all": ("рубины всех игроков", [
-        ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM daily_tasks WHERE task='_earned'", ())]),
+        ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM escrow", ()),
+        ("DELETE FROM daily_tasks WHERE task='_earned'", ())]),
     "ratings_all": ("рейтинги всех игр", [("DELETE FROM game_stats", ()), ("DELETE FROM game_log", ())]),
     "ach_tasks": ("достижения и ежедневные задания", [("DELETE FROM achievements", ()), ("DELETE FROM daily_tasks", ())]),
     "season": ("всё за сезон: рубины, рейтинги игр, достижения и задания", [
-        ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM game_stats", ()), ("DELETE FROM game_log", ()),
+        ("UPDATE wallets SET coins=0, total_earned=0", ()), ("DELETE FROM escrow", ()),
+        ("DELETE FROM game_stats", ()), ("DELETE FROM game_log", ()),
         ("DELETE FROM achievements", ()), ("DELETE FROM daily_tasks", ())]),
 }
 
@@ -76,10 +79,11 @@ async def cl_do(cb: CallbackQuery):
         try:
             summary = await season_summary()
         except Exception:
-            pass
+            logger.warning("Не удалось собрать итоги сезона перед очисткой", exc_info=True)
     try:
         await batch(ACTIONS[what][1])
     except Exception:
+        logger.exception("Очистка «%s» не удалась", what)
         await cb.message.answer("❌ Очистка не удалась, подробности в логе. Бэкап уже у тебя.")
         return
     await log_mod(ADMIN_ID, 0, "cleanup", what)
@@ -87,7 +91,7 @@ async def cl_do(cb: CallbackQuery):
         try:
             await cb.bot.send_message(GROUP_ID, summary)
         except Exception:
-            pass
+            logger.debug("Не удалось опубликовать итоги сезона", exc_info=True)
     await cb.message.answer(f"{e('check')} Готово: {esc(ACTIONS[what][0])}.")
     await cleanup_menu(cb)
 
@@ -130,7 +134,8 @@ async def cl_user_do(message: Message, state: FSMContext):
         await message.answer("❌ Не нашёл такого игрока.", reply_markup=CANCEL)
         return
     await backup.send_backup(message.bot, "перед очисткой")
-    await batch([("UPDATE wallets SET coins=0, total_earned=0 WHERE user_id=?", (uid,))])
+    await batch([("UPDATE wallets SET coins=0, total_earned=0 WHERE user_id=?", (uid,)),
+                 ("DELETE FROM escrow WHERE user_id=?", (uid,))])
     await log_mod(ADMIN_ID, uid, "cleanup", "coins one")
     await state.clear()
     await message.answer(f"{e('check')} Рубины игрока {esc(await get_user_name(uid))} обнулены.")

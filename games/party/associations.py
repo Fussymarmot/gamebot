@@ -14,6 +14,7 @@ from games.core import finish, GameDef, InGame, lobbies, Lobby, open_lobby, reco
 from services import ai
 from utils.emoji import e
 from utils.fmt import esc
+from utils.logs import logger
 
 router = Router()
 KEY = "assoc"
@@ -92,7 +93,7 @@ async def run(lobby: Lobby):
     except asyncio.CancelledError:
         raise
     except Exception:
-        pass
+        logger.exception("Ошибка в игре «Ассоциации» в чате %s", lobby.chat_id)
     finally:
         finish(lobby)
 

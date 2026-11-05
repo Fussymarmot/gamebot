@@ -11,9 +11,10 @@ from database import lifecycle
 from database.core import q, x
 from database.messages import cleanup_old_messages, flush_messages
 from database.settings import get_setting
-from games import core as games_core
+from games import core as games_core, invites
 from services import backup, giveaways, maintenance, members, tags
 from services.quiet import silent_state
+from utils.logs import logger
 from utils.timeutils import now, parse_ts, ts, TZ
 
 scheduler = AsyncIOScheduler(timezone=pytz.timezone(TIMEZONE))
@@ -44,7 +45,7 @@ def unschedule_giveaway(gid: int):
     try:
         scheduler.remove_job(f"gw_{gid}")
     except Exception:
-        pass
+        logger.debug("Задача розыгрыша %s уже снята", gid, exc_info=True)
 
 
 async def load_giveaways():
@@ -59,7 +60,7 @@ async def maint_end_job():
         try:
             await _bot.send_message(GROUP_ID, "✅ <b>Технические работы завершены.</b>\nБот снова работает!")
         except Exception:
-            pass
+            logger.exception("Не удалось сообщить о завершении техработ")
 
 
 def schedule_maint_end(end: datetime):
@@ -71,7 +72,7 @@ def unschedule_maint_end():
     try:
         scheduler.remove_job("maint_end")
     except Exception:
-        pass
+        logger.debug("Задача завершения техработ уже снята", exc_info=True)
 
 
 async def check_perm_tags():
@@ -80,7 +81,7 @@ async def check_perm_tags():
             m = await _bot.get_chat_member(GROUP_ID, uid)
             await tags.enforce(_bot, uid, getattr(m, "tag", None))
         except Exception:
-            pass
+            logger.warning("Не удалось проверить тег игрока %s", uid, exc_info=True)
 
 
 async def refresh_members_job():
@@ -91,6 +92,10 @@ async def quiet_job():
     await games_core.quiet_watch(_bot)
 
 
+async def busy_job():
+    invites.purge_expired()
+
+
 async def expire_tags():
     rows = await q("SELECT id, user_id FROM orders WHERE kind='tag' AND status='approved' AND expires_at <= ?", (ts(),))
     for oid, uid in rows:
@@ -98,7 +103,7 @@ async def expire_tags():
             try:
                 await tags.set_member_tag(_bot, uid, None)
             except Exception:
-                pass
+                logger.warning("Не удалось снять истёкший тег с игрока %s", uid, exc_info=True)
         await x("UPDATE orders SET status='expired' WHERE id=?", (oid,))
 
 
@@ -121,7 +126,7 @@ async def weekly_report_job():
     try:
         await _bot.send_message(ADMIN_ID, await report_week.build())
     except Exception:
-        pass
+        logger.exception("Не удалось отправить недельный отчёт")
 
 
 async def startup_jobs():
@@ -139,6 +144,7 @@ def start_scheduler(bot):
     scheduler.add_job(flush_messages, IntervalTrigger(seconds=15), id="flush")
     scheduler.add_job(check_perm_tags, IntervalTrigger(minutes=5), id="perm_tags")
     scheduler.add_job(quiet_job, IntervalTrigger(seconds=60), id="quiet_watch")
+    scheduler.add_job(busy_job, IntervalTrigger(minutes=5), id="busy_ttl")
     scheduler.add_job(expire_tags, IntervalTrigger(hours=1), id="expire_tags")
     scheduler.add_job(maintenance_job, IntervalTrigger(minutes=30), id="maintenance")
     scheduler.add_job(weekly_report_job, CronTrigger(day_of_week="sun", hour=19, minute=0, timezone=TZ),
