@@ -16,6 +16,26 @@ GAME_CMDS = {"ttt", "rps", "duel", "mafia", "memory", "code", "assoc", "games",
              "top_games", "stopgame", "stopmafia", "roulette", "poker", "blackjack", "wordseek", "seabattle", "hangman", "coin", "slot", "mines", "tower", "bowling", "darts", "dice", "basket", "pay"}
 LOBBY_CMDS = {"mafia", "memory", "code", "assoc", "roulette", "poker", "blackjack", "wordseek"}
 
+# Команды, которые действительно запускают игру. Служебные /games и /top_games
+# не должны расходовать игровой cooldown.
+_GAME_START_CMDS = GAME_CMDS - {"games", "top_games", "stopgame", "stopmafia", "pay"}
+# В меню игры ставка/режим запуска подтверждаются этими callback-кнопками.
+_GAME_START_CALLBACKS = ("gm:st:", "gm:all:")
+
+_game_last_start: Dict[int, float] = {}
+
+
+def _game_allowed(uid: int) -> bool:
+    """Атомарный для одного event loop cooldown: один старт игры в секунду на игрока."""
+    if uid == ADMIN_ID:
+        return True
+    now = time.monotonic()
+    previous = _game_last_start.get(uid, 0.0)
+    if now - previous < GAME_COOLDOWN:
+        return False
+    _game_last_start[uid] = now
+    return True
+
 _cmds: Dict[int, Deque[float]] = defaultdict(deque)
 _lobbies: Dict[int, Deque[float]] = defaultdict(deque)
 _repeat: Dict[int, Deque[tuple]] = defaultdict(deque)
