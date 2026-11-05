@@ -35,7 +35,8 @@ router = Router()
 KEY = "coin"
 TITLE = "Орёл и решка"
 COEF = 2          # во сколько раз умножается ставка при выигрыше (выплата = ставка * COEF)
-FLIP_PAUSE = 1.6  # пауза между стикером и итогом, сек
+MESSAGE_TO_STICKER_PAUSE = 0.9  # пауза после сообщения «Подбрасываю» до стикера
+STICKER_TO_RESULT_PAUSE = 1.8  # пауза между стикером и итогом
 CHOICE_SEC = 60   # сколько живут кнопки выбора стороны
 
 # Стикеры выпавшей стороны. Чтобы поменять, просто замени file_id.
@@ -178,11 +179,18 @@ async def _play(cb: CallbackQuery, p: dict, pick: str):
     try:
         await p["msg"].edit_text(
             f"🪙 <b>{TITLE}</b>\nИгрок: <b>{esc(p['name'])}</b>\n"
-            f"Ставка: <b>{stake}</b> {RUBY} на <b>{SIDE[pick].lower()}</b>\n\n<i>Подбрасываю монету...</i>")
+            f"Ставка: <b>{stake}</b> {RUBY} на <b>{SIDE[pick].lower()}</b>\n\n"
+            "<i>Подбрасываю монету...</i>",
+            reply_markup=None,
+        )
     except TelegramAPIError:
         pass
+
+    # Сначала даём игроку увидеть сообщение, затем отдельно показываем стикер.
+    await asyncio.sleep(MESSAGE_TO_STICKER_PAUSE)
     sticker = await _send_side(bot, chat_id, outcome)
-    await asyncio.sleep(FLIP_PAUSE)
+    # Итог отправляем только после того, как стикер успел появиться на экране.
+    await asyncio.sleep(STICKER_TO_RESULT_PAUSE)
 
     balance = (await ec.wallet(uid))[0]
     who = f"<b>{esc(p['name'])}</b>"

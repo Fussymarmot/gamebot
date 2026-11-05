@@ -10,6 +10,7 @@ from config import ADMIN_ID
 CMD_LIMIT, CMD_WINDOW = 20, 60
 LOBBY_LIMIT, LOBBY_WINDOW = 5, 60
 REPEAT_LIMIT, REPEAT_WINDOW = 3, 5
+GAME_COOLDOWN = 1.0  # минимум 1 секунда между запусками игр одним игроком
 
 GAME_CMDS = {"ttt", "rps", "duel", "mafia", "memory", "code", "assoc", "games",
              "top_games", "stopgame", "stopmafia", "roulette", "poker", "blackjack", "wordseek", "seabattle", "hangman", "coin", "slot", "mines", "tower", "bowling", "darts", "dice", "basket", "pay"}
@@ -60,7 +61,12 @@ class RateLimitMiddleware(BaseMiddleware):
     async def __call__(self, handler: Callable, event: Message, data: Dict[str, Any]) -> Any:
         user = event.from_user
         cmd = command_name(event.text or "")
-        if not user or user.id == ADMIN_ID or cmd not in GAME_CMDS:
+        if not user or cmd not in GAME_CMDS:
+            return await handler(event, data)
+        if cmd in _GAME_START_CMDS and not _game_allowed(user.id):
+            await event.answer("⏳ Подожди 1 секунду перед запуском следующей игры.")
+            return
+        if user.id == ADMIN_ID:
             return await handler(event, data)
         now = time.time()
         rep = _repeat[user.id]
@@ -77,4 +83,15 @@ class RateLimitMiddleware(BaseMiddleware):
                 _warned[user.id] = now
                 await event.answer("⏳ Слишком много действий. Попробуй немного позже.")
             return
+        return await handler(event, data)
+
+
+class GameCallbackCooldownMiddleware(BaseMiddleware):
+    async def __call__(self, handler: Callable, event, data: Dict[str, Any]) -> Any:
+        user = event.from_user
+        payload = event.data or ""
+        if user and payload.startswith(_GAME_START_CALLBACKS):
+            if not _game_allowed(user.id):
+                await event.answer("⏳ Подожди 1 секунду перед запуском следующей игры.", show_alert=False)
+                return
         return await handler(event, data)

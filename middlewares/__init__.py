@@ -8,7 +8,7 @@ def setup(dp: Dispatcher):
     from middlewares.features import FeatureMiddleware
     from middlewares.maintenance import MaintenanceMiddleware
     from middlewares.quiet_time import QuietTimeMiddleware
-    from middlewares.ratelimit import RateLimitMiddleware
+    from middlewares.ratelimit import RateLimitMiddleware, GameCallbackCooldownMiddleware
     from middlewares.register import RegisterMiddleware
     from middlewares.stats import StatsMiddleware
 
@@ -24,3 +24,4 @@ def setup(dp: Dispatcher):
     dp.message.outer_middleware(QuietTimeMiddleware())
     dp.callback_query.outer_middleware(CallbackGuardMiddleware())
     dp.callback_query.outer_middleware(MaintenanceMiddleware())
+    dp.callback_query.outer_middleware(GameCallbackCooldownMiddleware())
