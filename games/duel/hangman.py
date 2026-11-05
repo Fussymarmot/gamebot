@@ -171,10 +171,16 @@ async def _announce_end(bot, gid: str, g: Hangman, note: str):
 
 async def finish(bot, gid: str, g: Hangman, guesser_won: bool, note: str):
     drop(gid)
-    await _announce_end(bot, gid, g, note)
+    try:
+        await _announce_end(bot, gid, g, note)
+    except Exception:
+        pass
     winner, loser = (g.guesser, g.setter) if guesser_won else (g.setter, g.guesser)
-    await add_game_result(winner, KEY, "win")
-    await add_game_result(loser, KEY, "loss")
+    for u, r in ((winner, "win"), (loser, "loss")):
+        try:
+            await add_game_result(u, KEY, r)
+        except Exception:
+            pass
 
 
 async def watch(bot, gid: str):

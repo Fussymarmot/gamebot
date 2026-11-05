@@ -262,15 +262,20 @@ async def _finish(cb, gid, g, winner, note=""):
     g.over = winner
     if winner == "draw":
         res = "✨ <b>Ничья!</b>"
-        await add_game_result(g.p1, KEY, "draw")
-        await add_game_result(g.p2, KEY, "draw")
+        results = [(g.p1, "draw"), (g.p2, "draw")]
     else:
         loser = "b" if winner == "w" else "w"
         res = f"🎉 Победа: <b>{esc(g.name(winner))}</b>!{note}"
-        await add_game_result(g.uid(winner), KEY, "win")
-        await add_game_result(g.uid(loser), KEY, "loss")
+        results = [(g.uid(winner), "win"), (g.uid(loser), "loss")]
     g.note = res
-    await render(cb.bot, gid, g)
+    try:
+        await render(cb.bot, gid, g)
+    finally:
+        for u, r in results:
+            try:
+                await add_game_result(u, KEY, r)
+            except Exception:
+                pass
 
 
 @router.callback_query(F.data.startswith("ck:"))

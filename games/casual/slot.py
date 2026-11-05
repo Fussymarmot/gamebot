@@ -103,15 +103,18 @@ async def spin(bot, chat_id: int, user, stake: int) -> Optional[str]:
             dice = await bot.send_dice(chat_id, emoji="🎰")
             value = dice.dice.value
         except (TelegramAPIError, AttributeError):
-            await ec.credit(user.id, stake)
+            await asyncio.shield(ec.credit(user.id, stake))
             spinning.discard(user.id)
             return "Не удалось запустить автомат, ставка возвращена."
+        except BaseException:
+            await asyncio.shield(ec.credit(user.id, stake))
+            raise
         reels = decode(value)
         result = result_of(reels)
         coef = coef_of(reels)
         won = payout(result, stake, coef)
         if won:
-            await ec.credit(user.id, won)
+            await asyncio.shield(ec.credit(user.id, won))
     except BaseException:
         spinning.discard(user.id)
         raise

@@ -92,7 +92,7 @@ async def refresh_lobby(s: Session):
 
 def _drop(chat_id: int):
     s = sessions.pop(chat_id, None)
-    games_core.release(chat_id)
+    games_core.release(chat_id, owner=s) if s is not None else None
     return s
 
 
@@ -116,6 +116,9 @@ async def open_mafia_lobby(bot, chat_id: int, user) -> Optional[str]:
     g = MafiaGame(_gid, chat_id, user.id)
     s = Session(bot, g)
     sessions[chat_id] = s
+    _info = games_core.active(chat_id)
+    if _info is not None:
+        _info["owner"] = s
     g.add_player(user.id, user.first_name or user.username or "Игрок")
     s.lobby_msg = await bot.send_message(chat_id, await lobby_text(s), reply_markup=lobby_kb(g.gid))
     asyncio.create_task(_lobby_expire(s))

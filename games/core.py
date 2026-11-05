@@ -29,11 +29,16 @@ _gid = 1000
 def claim(chat_id: int, key: str, title: str, stop: Optional[Callable] = None) -> bool:
     if chat_id in registry:
         return False
-    registry[chat_id] = {"key": key, "title": title, "stop": stop, "warned": False}
+    registry[chat_id] = {"key": key, "title": title, "stop": stop, "warned": False, "owner": None}
     return True
 
 
-def release(chat_id: int):
+def release(chat_id: int, owner=None):
+    """Снимает бронь чата. С owner снимает только если бронь всё ещё принадлежит ему:
+    старая игра при завершении не должна снять бронь новой."""
+    info = registry.get(chat_id)
+    if owner is not None and (info is None or info.get("owner") is not owner):
+        return
     registry.pop(chat_id, None)
     gamemute.schedule_unmute(chat_id)
 
@@ -49,7 +54,8 @@ async def stop_active(bot, chat_id: int, reason: str) -> bool:
     stop = info.get("stop")
     if stop:
         await stop(bot, chat_id, reason)
-    release(chat_id)
+    if registry.get(chat_id) is info:      # за время stop бронь могла перейти новой игре
+        release(chat_id)
     return True
 
 
@@ -97,6 +103,7 @@ class Lobby:
         self.msg: Optional[Message] = None
         self.task: Optional[asyncio.Task] = None
         self.started = False
+        self.starting = False      # ставится синхронно, до первого await, чтобы второй «Старт» не прошёл
         self.data: dict = {}
 
     def text(self) -> str:
@@ -126,7 +133,7 @@ class Lobby:
 def finish(lobby: Lobby):
     if lobbies.get(lobby.chat_id) is lobby:
         lobbies.pop(lobby.chat_id, None)
-    release(lobby.chat_id)
+    release(lobby.chat_id, owner=lobby)
 
 
 async def _lobby_stop(bot, chat_id: int, reason: str):
@@ -159,6 +166,7 @@ async def open_lobby(bot, chat_id: int, user, game: GameDef) -> Optional[str]:
     _gid += 1
     lobby = Lobby(bot, game, chat_id, user.id, _gid)
     lobbies[chat_id] = lobby
+    registry[chat_id]["owner"] = lobby
     lobby.players[user.id] = user.first_name or user.username or "Игрок"
     lobby.msg = await bot.send_message(chat_id, lobby.text(), reply_markup=lobby.markup())
     asyncio.create_task(_lobby_expire(lobby))
@@ -167,7 +175,7 @@ async def open_lobby(bot, chat_id: int, user, game: GameDef) -> Optional[str]:
 
 async def _lobby_expire(lobby: Lobby):
     await asyncio.sleep(900)
-    if lobbies.get(lobby.chat_id) is lobby and not lobby.started:
+    if lobbies.get(lobby.chat_id) is lobby and not (lobby.started or lobby.starting):
         finish(lobby)
         try:
             await lobby.msg.edit_text(f"{e('stop')} <b>Лобби закрыто</b>\n<i>Время ожидания вышло.</i>")
@@ -182,7 +190,7 @@ async def lobby_cb(cb: CallbackQuery):
     if not lobby:
         await cb.answer("Это лобби уже закрыто", show_alert=True)
         return
-    if lobby.started:
+    if lobby.started or lobby.starting:
         await cb.answer("Игра уже началась", show_alert=True)
         return
     user = cb.from_user
@@ -204,6 +212,16 @@ async def lobby_cb(cb: CallbackQuery):
                 from utils.startlink import prompt_start
                 await prompt_start(cb, "game")
                 return
+        # пока шёл await, лобби могли запустить, закрыть или заполнить
+        if lobbies.get(lobby.chat_id) is not lobby or lobby.started or lobby.starting:
+            await cb.answer("Игра уже началась", show_alert=True)
+            return
+        if user.id in lobby.players:
+            await cb.answer("Ты уже в лобби")
+            return
+        if len(lobby.players) >= g.max_players:
+            await cb.answer("Лобби заполнено", show_alert=True)
+            return
         lobby.players[user.id] = name
         await cb.answer("Ты в игре!")
         await lobby.refresh()
@@ -230,18 +248,27 @@ async def lobby_cb(cb: CallbackQuery):
         if len(lobby.players) < g.min_players:
             await cb.answer(f"Нужно минимум {g.min_players} игроков", show_alert=True)
             return
-        await cb.answer()
-        if g.needs_dm:
-            bad = []
-            for uid, n in lobby.players.items():
-                if not await can_dm(cb.bot, uid):
-                    bad.append(n)
-            if bad:
-                await cb.message.answer(
-                    "❌ Не могу написать в личку: " + ", ".join(f"<b>{esc(n)}</b>" for n in bad) +
-                    "\n<i>Откройте бота, нажмите Start и снова нажмите «Старт».</i>")
+        if lobby.starting:
+            await cb.answer("Игра уже запускается")
+            return
+        lobby.starting = True                  # до первого await: двойной «Старт» не пройдёт
+        try:
+            await cb.answer()
+            if g.needs_dm:
+                bad = []
+                for uid, n in list(lobby.players.items()):
+                    if not await can_dm(cb.bot, uid):
+                        bad.append(n)
+                if bad:
+                    await cb.message.answer(
+                        "❌ Не могу написать в личку: " + ", ".join(f"<b>{esc(n)}</b>" for n in bad) +
+                        "\n<i>Откройте бота, нажмите Start и снова нажмите «Старт».</i>")
+                    return
+            if lobbies.get(lobby.chat_id) is not lobby:   # лобби закрыли за время проверок
                 return
-        lobby.started = True
+            lobby.started = True
+        finally:
+            lobby.starting = False
         try:
             await lobby.msg.edit_text(f"{e(g.emoji)} <b>{esc(g.title)}</b>\n\n"
                                       f"<i>Игра началась! Игроков: {len(lobby.players)}</i>")
@@ -302,4 +329,7 @@ async def record_results(game_key: str, players, winners):
         return
     win = set(winners)
     for uid in players:
-        await add_game_result(uid, game_key, "win" if uid in win else "loss")
+        try:
+            await add_game_result(uid, game_key, "win" if uid in win else "loss")
+        except Exception:
+            pass

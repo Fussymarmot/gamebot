@@ -311,8 +311,11 @@ async def finish(bot, gid, g, winner, note=""):
     await group_status(bot, g, f"🎉 <b>Морской бой</b>: победил <b>{esc(g.name(winner))}</b>!{note}")
     if g.p2:
         loser = g.opp(winner)
-        await add_game_result(winner, KEY, "win")
-        await add_game_result(loser, KEY, "loss")
+        for u, r in ((winner, "win"), (loser, "loss")):
+            try:
+                await add_game_result(u, KEY, r)
+            except Exception:
+                pass
 
 
 def after_shot(g, shooter, res, cell):

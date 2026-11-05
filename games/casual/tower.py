@@ -256,15 +256,14 @@ async def _edit(g: Game, text: str, markup: InlineKeyboardMarkup):
         pass
 
 
+class _Refund(Exception):
+    pass
+
+
 async def _end(g: Game, kind: str, boom: Optional[int] = None):
     """Завершает игру (вызывать под g.lock). kind: boom | cash | max | top | idle."""
-    g.over = True
-    games.pop(g.token, None)
-    if by_user.get(g.uid) == g.token:
-        by_user.pop(g.uid, None)
-    if g.task and g.task is not asyncio.current_task():
-        g.task.cancel()
-    g.boom = boom
+    if g.over:                                 # уже завершена: повторно не платим
+        return
     k, m = len(g.picks), g.max_mines
     who = f"<b>{esc(g.name)}</b>"
     result = None
@@ -275,8 +274,19 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
     else:
         won = payout_of(g.stake, k, m)
     if won:
+        # Деньги раньше изменения состояния: если credit упадёт, игра останется живой и выплату можно повторить.
         await ec.credit(g.uid, won)
-    balance = (await ec.wallet(g.uid))[0]
+    g.over = True
+    games.pop(g.token, None)
+    if by_user.get(g.uid) == g.token:
+        by_user.pop(g.uid, None)
+    if g.task and g.task is not asyncio.current_task():
+        g.task.cancel()
+    g.boom = boom
+    try:
+        balance = (await ec.wallet(g.uid))[0]
+    except Exception:
+        balance = 0
     bal = f"Баланс: <b>{balance}</b> {RUBY}"
     info = f"Мин в ряду: до <b>{m}</b> · пройдено этажей: <b>{k}</b> из {FLOORS}"
 
@@ -304,13 +314,16 @@ async def _end(g: Game, kind: str, boom: Optional[int] = None):
     markup = final_markup(g, balance)
     try:
         await g.msg.edit_text(text, reply_markup=markup)
-    except TelegramAPIError:
+    except Exception:
         try:
             await g.bot.send_message(g.chat_id, text, reply_markup=markup)
-        except TelegramAPIError:
+        except Exception:
             pass
     if result:
-        await add_game_result(g.uid, KEY, result)
+        try:
+            await add_game_result(g.uid, KEY, result)
+        except Exception:
+            pass
 
 
 async def _check(chat_id: int, user) -> Optional[str]:
@@ -367,24 +380,31 @@ async def _begin(bot, chat_id: int, user, stake: int, max_mines: int, msg: Optio
         # Ставка списывается сразу и только если рубины есть: повторное нажатие не потратит её дважды.
         if not await ec.debit(user.id, stake):
             return "У тебя не хватает рубинов на такую ставку."
-        g = Game(token=secrets.token_hex(4), uid=user.id, name=_name(user), stake=stake, max_mines=max_mines,
-                 layout=_build_layout(max_mines), bot=bot, chat_id=chat_id)
-        text, markup = game_text(g), game_markup(g)
         try:
-            if msg:
-                await msg.edit_text(text, reply_markup=markup)
-                g.msg = msg
-            else:
-                g.msg = await bot.send_message(chat_id, text, reply_markup=markup)
-        except TelegramAPIError:
+            g = Game(token=secrets.token_hex(4), uid=user.id, name=_name(user), stake=stake, max_mines=max_mines,
+                     layout=_build_layout(max_mines), bot=bot, chat_id=chat_id)
+            text, markup = game_text(g), game_markup(g)
             try:
-                g.msg = await bot.send_message(chat_id, text, reply_markup=markup)
+                if msg:
+                    await msg.edit_text(text, reply_markup=markup)
+                    g.msg = msg
+                else:
+                    g.msg = await bot.send_message(chat_id, text, reply_markup=markup)
             except TelegramAPIError:
-                await ec.credit(user.id, stake)
-                return "Не удалось запустить игру, ставка возвращена."
-        games[g.token] = g
-        by_user[user.id] = g.token
-        _restart_idle(g)
+                try:
+                    g.msg = await bot.send_message(chat_id, text, reply_markup=markup)
+                except TelegramAPIError:
+                    raise _Refund()
+            games[g.token] = g
+            by_user[user.id] = g.token
+            _restart_idle(g)
+        except _Refund:
+            await asyncio.shield(ec.credit(user.id, stake))
+            return "Не удалось запустить игру, ставка возвращена."
+        except BaseException:
+            if user.id not in by_user or games.get(by_user[user.id]) is None:
+                await asyncio.shield(ec.credit(user.id, stake))
+            raise
         return None
 
 

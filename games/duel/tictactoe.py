@@ -128,12 +128,17 @@ async def ttt_cb(cb: CallbackQuery):
         await _finish(gid)
         if w == "draw":
             res = f"\n\n{e('sparkles')} <b>Ничья!</b>"
-            await add_game_result(g.p1, "ttt", "draw")
-            await add_game_result(g.p2, "ttt", "draw")
+            results = [(g.p1, "draw"), (g.p2, "draw")]
         else:
             wid, wn, lid = (g.p1, g.n1, g.p2) if w == "X" else (g.p2, g.n2, g.p1)
             res = f"\n\n{e('party')} Победа: <b>{esc(wn)}</b>!"
-            await add_game_result(wid, "ttt", "win")
-            await add_game_result(lid, "ttt", "loss")
-        await cb.message.edit_text(g.text().rsplit("\n\n", 1)[0] + res, reply_markup=g.kb(gid, over=True))
+            results = [(wid, "win"), (lid, "loss")]
+        try:
+            await cb.message.edit_text(g.text().rsplit("\n\n", 1)[0] + res, reply_markup=g.kb(gid, over=True))
+        finally:
+            for u, r in results:
+                try:
+                    await add_game_result(u, "ttt", r)
+                except Exception:
+                    pass
         await cb.answer()
